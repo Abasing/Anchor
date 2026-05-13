@@ -1,0 +1,18 @@
+debug: false
+
+regions:
+  default-permissive: true
+
+hooks:
+  vault: true
+  luckperms: true
+  placeholderapi: true
+  worldguard: true
+  citizens: true
+  protocollib: true
+
+gui:
+  cancel-clicks-by-default: true
+
+logging:
+  show-hook-status-on-startup: true

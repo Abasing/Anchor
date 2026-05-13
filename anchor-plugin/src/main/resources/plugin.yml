@@ -1,0 +1,33 @@
+name: Anchor
+main: me.zamin.anchor.plugin.AnchorPlugin
+version: ${project.version}
+api-version: "1.20"
+softdepend:
+  - Vault
+  - LuckPerms
+  - PlaceholderAPI
+  - WorldGuard
+  - Citizens
+  - ProtocolLib
+commands:
+  anchor:
+    description: Anchor administration command
+    usage: /anchor <status|hooks|doctor|reload>
+    aliases: [anc]
+permissions:
+  anchor.admin:
+    description: Full access to Anchor administration
+    default: op
+    children:
+      anchor.command.status: true
+      anchor.command.hooks: true
+      anchor.command.doctor: true
+      anchor.command.reload: true
+  anchor.command.status:
+    default: op
+  anchor.command.hooks:
+    default: op
+  anchor.command.doctor:
+    default: op
+  anchor.command.reload:
+    default: op

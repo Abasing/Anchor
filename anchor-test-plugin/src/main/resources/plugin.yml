@@ -1,0 +1,9 @@
+name: AnchorTestPlugin
+main: me.zamin.anchor.testplugin.AnchorTestPlugin
+version: ${project.version}
+api-version: "1.20"
+depend:
+  - Anchor
+commands:
+  anchortest:
+    description: Test Anchor integration
