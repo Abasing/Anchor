@@ -4,18 +4,6 @@ Stop hooking into everything. Hook into Anchor.
 
 Anchor is a serious ecosystem integration layer for Paper and Spigot plugin developers. Instead of every plugin wiring Vault, LuckPerms, PlaceholderAPI, WorldGuard, scheduler quirks, GUI safety, and item tags on its own, Anchor provides one stable public API and hides the adapter churn behind it.
 
-## Project Layout
-
-```txt
-anchor-parent
-|-- anchor-api
-|-- anchor-plugin
-|-- anchor-adapters
-|-- anchor-test-plugin
-|-- anchor-docs
-`-- examples/*
-```
-
 ## Before Anchor vs After Anchor
 
 ### Before Anchor
