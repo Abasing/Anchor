@@ -1,0 +1,5 @@
+name: AnchorExampleRegions
+main: me.zamin.anchor.examples.regions.RegionsExamplePlugin
+version: ${project.version}
+api-version: "1.20"
+depend: [Anchor]

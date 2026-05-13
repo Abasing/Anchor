@@ -8,11 +8,12 @@ Anchor is a serious ecosystem integration layer for Paper and Spigot plugin deve
 
 ```txt
 anchor-parent
-├── anchor-api
-├── anchor-plugin
-├── anchor-adapters
-├── anchor-test-plugin
-└── anchor-docs
+|-- anchor-api
+|-- anchor-plugin
+|-- anchor-adapters
+|-- anchor-test-plugin
+|-- anchor-docs
+`-- examples/*
 ```
 
 ## Before Anchor vs After Anchor
@@ -48,6 +49,7 @@ if (Anchor.api().permissions().has(player, "myplugin.admin")) {
 
 String text = Anchor.api().placeholders().parse(player, "Hello {player}");
 boolean canBuild = Anchor.api().regions().canBuild(player, location);
+Anchor.api().scheduler().entity(player).runLater(() -> player.sendMessage("Safe task"), 20L);
 ```
 
 ## What makes Anchor worth using
@@ -55,12 +57,26 @@ boolean canBuild = Anchor.api().regions().canBuild(player, location);
 - Painful hooks first: Vault economy, LuckPerms permissions, PlaceholderAPI, WorldGuard, scheduler abstraction, PDC item tags, and GUI safety.
 - Missing plugins do not crash downstream plugins.
 - Direct plugin hooks start to look like technical debt.
-- Example plugin included in `anchor-test-plugin`.
-- Migration notes included in `anchor-docs`.
+- Example plugins are included as real buildable modules.
+- Migration notes are included in `anchor-docs`.
+- `/anchor doctor` is designed to explain runtime conditions instead of just dumping booleans.
+
+## Scheduler Direction
+
+Anchor exposes platform-neutral scheduler contexts:
+
+```java
+Anchor.api().scheduler().global().run(...);
+Anchor.api().scheduler().async().supplyAsync(...);
+Anchor.api().scheduler().region(location).run(...);
+Anchor.api().scheduler().entity(entity).run(...);
+```
+
+On Bukkit/Paper, region and entity contexts degrade cleanly to global scheduling. On Folia, Anchor uses the proper global, async, region, and entity schedulers internally.
 
 ## Folia reality
 
-Anchor does not pretend Folia is solved by adding `folia-supported: true`. PaperMC explicitly warns that the marker alone is not enough and that Folia requires using the correct global, region, async, and entity schedulers with no single main thread assumption. Anchor's scheduler API is designed to grow into that model, but the current runtime implementation is Bukkit/Paper-first with Folia-aware surface design.
+Anchor does not pretend Folia is solved by adding `folia-supported: true`. PaperMC explicitly warns that the marker alone is not enough and that Folia requires using the correct global, region, async, and entity schedulers with no single main thread assumption.
 
 Source: [PaperMC Docs: Supporting Paper and Folia](https://docs.papermc.io/paper/dev/folia-support/)
 
@@ -79,3 +95,4 @@ mvn clean package
 - `anchor-adapters`: Vault, LuckPerms, PlaceholderAPI, WorldGuard, Citizens skeleton, ProtocolLib skeleton
 - `anchor-test-plugin`: copyable integration example
 - `anchor-docs`: migration notes and design docs
+- `examples/*`: independently compiling example plugins for focused usage patterns

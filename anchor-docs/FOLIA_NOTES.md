@@ -6,8 +6,9 @@ PaperMC documents that adding `folia-supported: true` is not enough. Folia has n
 
 Current Anchor state:
 
-- Scheduler API is designed for future Folia-aware expansion.
-- Runtime implementation is Bukkit/Paper-first.
-- No `folia-supported: true` flag is advertised yet.
+- Scheduler API exposes global, async, region, and entity execution contexts.
+- Runtime selects a Bukkit adapter on Paper/Spigot and a Folia adapter on Folia.
+- Public API stays platform-neutral and does not expose Folia classes directly.
+- Anchor still avoids fake support claims beyond the runtime behavior it actually provides.
 
 Reference: https://docs.papermc.io/paper/dev/folia-support/

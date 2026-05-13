@@ -5,6 +5,7 @@ public record HookStatus(
     String dependencyName,
     HookState state,
     String providerName,
-    String message
+    String message,
+    long loadMillis
 ) {
 }

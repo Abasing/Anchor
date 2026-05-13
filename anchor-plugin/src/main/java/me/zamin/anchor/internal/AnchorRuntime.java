@@ -1,12 +1,24 @@
 package me.zamin.anchor.internal;
 
 import com.sk89q.worldguard.bukkit.WorldGuardPlugin;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URISyntaxException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.CodeSource;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 import me.zamin.anchor.adapters.BukkitPermissionsService;
 import me.zamin.anchor.adapters.InternalPlaceholderService;
 import me.zamin.anchor.adapters.LuckPermsPermissionsService;
@@ -20,7 +32,12 @@ import me.zamin.anchor.api.AnchorApi;
 import me.zamin.anchor.api.AnchorPlatform;
 import me.zamin.anchor.api.AnchorService;
 import me.zamin.anchor.api.ServiceStatus;
+import me.zamin.anchor.api.diagnostics.DiagnosticSeverity;
 import me.zamin.anchor.api.diagnostics.DiagnosticsService;
+import me.zamin.anchor.api.diagnostics.DoctorMessage;
+import me.zamin.anchor.api.diagnostics.DoctorReport;
+import me.zamin.anchor.api.diagnostics.PluginCompatibilityReport;
+import me.zamin.anchor.api.diagnostics.StartupTimingReport;
 import me.zamin.anchor.api.economy.EconomyService;
 import me.zamin.anchor.api.gui.GuiFactory;
 import me.zamin.anchor.api.hooks.HookService;
@@ -30,55 +47,81 @@ import me.zamin.anchor.api.items.ItemTagService;
 import me.zamin.anchor.api.permissions.PermissionsService;
 import me.zamin.anchor.api.placeholders.PlaceholderService;
 import me.zamin.anchor.api.regions.RegionService;
+import me.zamin.anchor.api.scheduler.SchedulerDiagnostics;
 import me.zamin.anchor.api.scheduler.SchedulerService;
 import me.zamin.anchor.api.services.ServiceRegistry;
+import me.zamin.anchor.internal.adapters.meta.AdapterCapability;
+import me.zamin.anchor.internal.adapters.meta.AdapterLifecycleState;
+import me.zamin.anchor.internal.adapters.meta.AdapterMetadata;
 import me.zamin.anchor.plugin.AnchorPlugin;
 import net.luckperms.api.LuckPerms;
 import net.milkbowl.vault.economy.Economy;
 import net.milkbowl.vault.permission.Permission;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.Plugin;
+import org.bukkit.plugin.PluginDescriptionFile;
 import org.bukkit.plugin.ServicesManager;
 
 public final class AnchorRuntime {
+
+    private static final List<String> DIRECT_SCHEDULER_MARKERS = List.of(
+        "BukkitScheduler",
+        "runTask",
+        "runTaskLater",
+        "runTaskTimer",
+        "runTaskAsynchronously",
+        "getScheduler"
+    );
 
     private final AnchorPlugin plugin;
     private final SimpleServiceRegistry services = new SimpleServiceRegistry();
     private final HookServiceImpl hooks = new HookServiceImpl();
     private SimpleAnchorApi api;
+    private StartupTimingReport startupTiming;
 
     public AnchorRuntime(AnchorPlugin plugin) {
         this.plugin = plugin;
     }
 
     public void enable() {
+        long startupStart = System.nanoTime();
         AnchorPlatform platform = PlatformDetector.detect();
-        EconomyService economy = loadEconomy();
-        PermissionsService permissions = loadPermissions();
-        PlaceholderService placeholders = loadPlaceholders(platform);
-        RegionService regions = loadRegions();
+
+        TimedResult<EconomyService> economy = loadEconomy();
+        TimedResult<PermissionsService> permissions = loadPermissions();
+        TimedResult<PlaceholderService> placeholders = loadPlaceholders(platform);
+        TimedResult<RegionService> regions = loadRegions();
+        TimedResult<SchedulerService> scheduler = createScheduler(platform);
         ItemTagService items = new PersistentDataItemTagService(plugin);
         GuiFactory guis = new GuiFactoryImpl(plugin);
-        SchedulerService scheduler = new BukkitAnchorScheduler(plugin);
-        registerSkeletonHooks();
-        DiagnosticsService diagnostics = new DiagnosticsServiceImpl(hooks, List.of(economy, permissions, placeholders, regions, items, guis, scheduler));
 
-        services.register(EconomyService.class, economy);
-        services.register(PermissionsService.class, permissions);
-        services.register(PlaceholderService.class, placeholders);
-        services.register(RegionService.class, regions);
+        registerSkeletonHook("Citizens", plugin.getConfig().getBoolean("hooks.citizens", true), AdapterCapability.CITIZENS);
+        registerSkeletonHook("ProtocolLib", plugin.getConfig().getBoolean("hooks.protocollib", true), AdapterCapability.PROTOCOLLIB);
+
+        List<AnchorService> coreServices = List.of(economy.value(), permissions.value(), placeholders.value(), regions.value(), items, guis, scheduler.value());
+        DiagnosticsService diagnostics = new DiagnosticsServiceImpl(hooks, coreServices, scheduler.value().diagnostics());
+
+        services.register(EconomyService.class, economy.value());
+        services.register(PermissionsService.class, permissions.value());
+        services.register(PlaceholderService.class, placeholders.value());
+        services.register(RegionService.class, regions.value());
         services.register(ItemTagService.class, items);
         services.register(GuiFactory.class, guis);
-        services.register(SchedulerService.class, scheduler);
+        services.register(SchedulerService.class, scheduler.value());
         services.register(HookService.class, hooks);
         services.register(DiagnosticsService.class, diagnostics);
 
-        api = new SimpleAnchorApi(economy, permissions, placeholders, regions, items, guis, scheduler, hooks, diagnostics, services, platform);
+        long totalMillis = nanosToMillis(System.nanoTime() - startupStart);
+        long hookMillis = economy.elapsedMillis() + permissions.elapsedMillis() + placeholders.elapsedMillis() + regions.elapsedMillis();
+        startupTiming = new StartupTimingReport(totalMillis, scheduler.elapsedMillis(), hookMillis);
+
+        api = new SimpleAnchorApi(economy.value(), permissions.value(), placeholders.value(), regions.value(), items, guis, scheduler.value(), hooks, diagnostics, services, platform);
         plugin.getServer().getPluginManager().registerEvents(new GuiListener(), plugin);
 
         if (plugin.getConfig().getBoolean("logging.show-hook-status-on-startup", true)) {
+            plugin.getLogger().info("Anchor startup completed in " + startupTiming.totalMillis() + "ms");
             for (HookStatus hook : hooks.all()) {
-                plugin.getLogger().info(hook.hookName() + " -> " + hook.state() + " (" + hook.message() + ")");
+                plugin.getLogger().info(hook.hookName() + " -> " + hook.state() + " (" + hook.message() + ", " + hook.loadMillis() + "ms)");
             }
         }
     }
@@ -92,88 +135,121 @@ public final class AnchorRuntime {
         return api;
     }
 
-    private EconomyService loadEconomy() {
+    private TimedResult<EconomyService> loadEconomy() {
+        long start = System.nanoTime();
         if (!plugin.getConfig().getBoolean("hooks.vault", true)) {
-            hooks.register(new HookStatus("Vault Economy", "Vault", HookState.DISABLED, "none", "Vault hook disabled in config."));
-            return new NoOpEconomyService();
+            hooks.register(metadata("Vault Economy", "Vault", AdapterLifecycleState.DISABLED, Set.of(AdapterCapability.ECONOMY), "none", "Vault hook disabled in config.", start));
+            return new TimedResult<>(new NoOpEconomyService(), nanosToMillis(System.nanoTime() - start));
         }
         ServicesManager servicesManager = Bukkit.getServicesManager();
         Economy economy = servicesManager.load(Economy.class);
         if (economy == null || !isPluginEnabled("Vault")) {
-            hooks.register(new HookStatus("Vault Economy", "Vault", HookState.MISSING, "none", "Vault economy not installed."));
-            return new NoOpEconomyService();
+            hooks.register(metadata("Vault Economy", "Vault", AdapterLifecycleState.MISSING, Set.of(AdapterCapability.ECONOMY), "none", "Vault economy not installed.", start));
+            return new TimedResult<>(new NoOpEconomyService(), nanosToMillis(System.nanoTime() - start));
         }
-        hooks.register(new HookStatus("Vault Economy", "Vault", HookState.ACTIVE, economy.getName(), "Vault economy bridge active."));
-        return new VaultEconomyService(economy);
+        hooks.register(metadata("Vault Economy", "Vault", AdapterLifecycleState.ACTIVE, Set.of(AdapterCapability.ECONOMY), economy.getName(), "Vault economy bridge active.", start));
+        return new TimedResult<>(new VaultEconomyService(economy), nanosToMillis(System.nanoTime() - start));
     }
 
-    private PermissionsService loadPermissions() {
+    private TimedResult<PermissionsService> loadPermissions() {
+        long start = System.nanoTime();
         if (plugin.getConfig().getBoolean("hooks.luckperms", true) && isPluginEnabled("LuckPerms")) {
             LuckPerms luckPerms = Bukkit.getServicesManager().load(LuckPerms.class);
             if (luckPerms != null) {
-                hooks.register(new HookStatus("LuckPerms", "LuckPerms", HookState.ACTIVE, "LuckPerms", "LuckPerms bridge active."));
-                return new LuckPermsPermissionsService(luckPerms);
+                hooks.register(metadata("LuckPerms", "LuckPerms", AdapterLifecycleState.ACTIVE, Set.of(AdapterCapability.PERMISSIONS), "LuckPerms", "LuckPerms bridge active.", start));
+                return new TimedResult<>(new LuckPermsPermissionsService(luckPerms), nanosToMillis(System.nanoTime() - start));
             }
         }
         if (plugin.getConfig().getBoolean("hooks.vault", true) && isPluginEnabled("Vault")) {
             Permission permission = Bukkit.getServicesManager().load(Permission.class);
             if (permission != null) {
-                hooks.register(new HookStatus("Vault Permissions", "Vault", HookState.ACTIVE, permission.getName(), "Vault permissions bridge active."));
-                return new VaultPermissionsService(permission);
+                hooks.register(metadata("Vault Permissions", "Vault", AdapterLifecycleState.FALLBACK, Set.of(AdapterCapability.PERMISSIONS), permission.getName(), "Vault permissions bridge active but lower priority than LuckPerms.", start));
+                return new TimedResult<>(new VaultPermissionsService(permission), nanosToMillis(System.nanoTime() - start));
             }
         }
-        hooks.register(new HookStatus("Permissions Fallback", "Bukkit", HookState.FALLBACK, "Bukkit", "Using Bukkit permission fallback."));
-        return new BukkitPermissionsService();
+        hooks.register(metadata("Permissions Fallback", "Bukkit", AdapterLifecycleState.FALLBACK, Set.of(AdapterCapability.PERMISSIONS), "Bukkit", "Using Bukkit permission fallback.", start));
+        return new TimedResult<>(new BukkitPermissionsService(), nanosToMillis(System.nanoTime() - start));
     }
 
-    private PlaceholderService loadPlaceholders(AnchorPlatform platform) {
+    private TimedResult<PlaceholderService> loadPlaceholders(AnchorPlatform platform) {
+        long start = System.nanoTime();
         InternalPlaceholderService fallback = new InternalPlaceholderService(platform.serverVersion());
         if (!plugin.getConfig().getBoolean("hooks.placeholderapi", true)) {
-            hooks.register(new HookStatus("PlaceholderAPI", "PlaceholderAPI", HookState.DISABLED, "Internal", "PlaceholderAPI disabled in config."));
-            return fallback;
+            hooks.register(metadata("PlaceholderAPI", "PlaceholderAPI", AdapterLifecycleState.DISABLED, Set.of(AdapterCapability.PLACEHOLDERS), "Internal", "PlaceholderAPI disabled in config.", start));
+            return new TimedResult<>(fallback, nanosToMillis(System.nanoTime() - start));
         }
         if (!isPluginEnabled("PlaceholderAPI")) {
-            hooks.register(new HookStatus("PlaceholderAPI", "PlaceholderAPI", HookState.FALLBACK, "Internal", "Using internal placeholders."));
-            return fallback;
+            hooks.register(metadata("PlaceholderAPI", "PlaceholderAPI", AdapterLifecycleState.FALLBACK, Set.of(AdapterCapability.PLACEHOLDERS), "Internal", "Using internal placeholders.", start));
+            return new TimedResult<>(fallback, nanosToMillis(System.nanoTime() - start));
         }
-        hooks.register(new HookStatus("PlaceholderAPI", "PlaceholderAPI", HookState.ACTIVE, "PlaceholderAPI", "PlaceholderAPI bridge active."));
-        return new PlaceholderApiService(fallback);
+        hooks.register(metadata("PlaceholderAPI", "PlaceholderAPI", AdapterLifecycleState.ACTIVE, Set.of(AdapterCapability.PLACEHOLDERS), "PlaceholderAPI", "PlaceholderAPI bridge active.", start));
+        return new TimedResult<>(new PlaceholderApiService(fallback), nanosToMillis(System.nanoTime() - start));
     }
 
-    private RegionService loadRegions() {
+    private TimedResult<RegionService> loadRegions() {
+        long start = System.nanoTime();
         boolean permissive = plugin.getConfig().getBoolean("regions.default-permissive", true);
         if (!plugin.getConfig().getBoolean("hooks.worldguard", true)) {
-            hooks.register(new HookStatus("WorldGuard", "WorldGuard", HookState.DISABLED, "Fallback", "WorldGuard disabled in config."));
-            return new NoOpRegionService(permissive);
+            hooks.register(metadata("WorldGuard", "WorldGuard", AdapterLifecycleState.DISABLED, Set.of(AdapterCapability.REGIONS), "Fallback", "WorldGuard disabled in config.", start));
+            return new TimedResult<>(new NoOpRegionService(permissive), nanosToMillis(System.nanoTime() - start));
         }
         Plugin worldGuard = Bukkit.getPluginManager().getPlugin("WorldGuard");
         if (worldGuard instanceof WorldGuardPlugin worldGuardPlugin) {
-            hooks.register(new HookStatus("WorldGuard", "WorldGuard", HookState.ACTIVE, "WorldGuard", "WorldGuard region bridge active."));
-            return new WorldGuardRegionService(worldGuardPlugin);
+            String version = worldGuardPlugin.getPluginMeta().getVersion();
+            String message = version.startsWith("7.")
+                ? "WorldGuard region bridge active."
+                : "WorldGuard detected, but Anchor expects v7+ APIs.";
+            hooks.register(metadata("WorldGuard", "WorldGuard", AdapterLifecycleState.ACTIVE, Set.of(AdapterCapability.REGIONS), "WorldGuard", message, start));
+            return new TimedResult<>(new WorldGuardRegionService(worldGuardPlugin), nanosToMillis(System.nanoTime() - start));
         }
-        hooks.register(new HookStatus("WorldGuard", "WorldGuard", HookState.FALLBACK, "Fallback", "WorldGuard missing, using permissive fallback."));
-        return new NoOpRegionService(permissive);
+        hooks.register(metadata("WorldGuard", "WorldGuard", AdapterLifecycleState.FALLBACK, Set.of(AdapterCapability.REGIONS), "Fallback", "WorldGuard missing, using configured fallback.", start));
+        return new TimedResult<>(new NoOpRegionService(permissive), nanosToMillis(System.nanoTime() - start));
+    }
+
+    private TimedResult<SchedulerService> createScheduler(AnchorPlatform platform) {
+        long start = System.nanoTime();
+        SchedulerService scheduler = platform.folia() ? new FoliaSchedulerAdapter(plugin) : new BukkitSchedulerAdapter(plugin, platform.folia());
+        return new TimedResult<>(scheduler, nanosToMillis(System.nanoTime() - start));
     }
 
     private boolean isPluginEnabled(String name) {
         return Bukkit.getPluginManager().isPluginEnabled(name);
     }
 
-    private void registerSkeletonHooks() {
-        registerSkeletonHook("Citizens", plugin.getConfig().getBoolean("hooks.citizens", true));
-        registerSkeletonHook("ProtocolLib", plugin.getConfig().getBoolean("hooks.protocollib", true));
-    }
-
-    private void registerSkeletonHook(String pluginName, boolean enabled) {
+    private void registerSkeletonHook(String pluginName, boolean enabled, AdapterCapability capability) {
+        long start = System.nanoTime();
         if (!enabled) {
-            hooks.register(new HookStatus(pluginName, pluginName, HookState.DISABLED, "none", pluginName + " skeleton disabled in config."));
+            hooks.register(metadata(pluginName, pluginName, AdapterLifecycleState.DISABLED, Set.of(capability), "none", pluginName + " skeleton disabled in config.", start));
             return;
         }
         if (isPluginEnabled(pluginName)) {
-            hooks.register(new HookStatus(pluginName, pluginName, HookState.SKELETON, pluginName, pluginName + " detected, runtime abstraction not implemented yet."));
+            hooks.register(metadata(pluginName, pluginName, AdapterLifecycleState.SKELETON, Set.of(capability), pluginName, pluginName + " detected, runtime abstraction not implemented yet.", start));
         } else {
-            hooks.register(new HookStatus(pluginName, pluginName, HookState.MISSING, "none", pluginName + " not installed; skeleton hook reserved."));
+            hooks.register(metadata(pluginName, pluginName, AdapterLifecycleState.MISSING, Set.of(capability), "none", pluginName + " not installed; skeleton hook reserved.", start));
         }
+    }
+
+    private AdapterMetadata metadata(String name, String dependency, AdapterLifecycleState state, Set<AdapterCapability> capabilities,
+                                     String providerName, String message, long startNanos) {
+        return new AdapterMetadata(name, dependency, state, capabilities, providerName, message, nanosToMillis(System.nanoTime() - startNanos));
+    }
+
+    private static HookState mapState(AdapterLifecycleState state) {
+        return switch (state) {
+            case ACTIVE -> HookState.ACTIVE;
+            case FALLBACK -> HookState.FALLBACK;
+            case MISSING -> HookState.MISSING;
+            case DISABLED -> HookState.DISABLED;
+            case FAILED -> HookState.FAILED;
+            case SKELETON -> HookState.SKELETON;
+        };
+    }
+
+    private static long nanosToMillis(long nanos) {
+        return nanos / 1_000_000L;
+    }
+
+    private record TimedResult<T>(T value, long elapsedMillis) {
     }
 
     private static final class SimpleAnchorApi implements AnchorApi {
@@ -193,17 +269,17 @@ public final class AnchorRuntime {
         private SimpleAnchorApi(EconomyService economy, PermissionsService permissions, PlaceholderService placeholders,
                                 RegionService regions, ItemTagService items, GuiFactory guis, SchedulerService scheduler,
                                 HookService hooks, DiagnosticsService diagnostics, ServiceRegistry services, AnchorPlatform platform) {
-            this.economy = economy;
-            this.permissions = permissions;
-            this.placeholders = placeholders;
-            this.regions = regions;
-            this.items = items;
-            this.guis = guis;
-            this.scheduler = scheduler;
-            this.hooks = hooks;
-            this.diagnostics = diagnostics;
-            this.services = services;
-            this.platform = platform;
+            this.economy = Objects.requireNonNull(economy, "economy");
+            this.permissions = Objects.requireNonNull(permissions, "permissions");
+            this.placeholders = Objects.requireNonNull(placeholders, "placeholders");
+            this.regions = Objects.requireNonNull(regions, "regions");
+            this.items = Objects.requireNonNull(items, "items");
+            this.guis = Objects.requireNonNull(guis, "guis");
+            this.scheduler = Objects.requireNonNull(scheduler, "scheduler");
+            this.hooks = Objects.requireNonNull(hooks, "hooks");
+            this.diagnostics = Objects.requireNonNull(diagnostics, "diagnostics");
+            this.services = Objects.requireNonNull(services, "services");
+            this.platform = Objects.requireNonNull(platform, "platform");
         }
 
         @Override
@@ -264,20 +340,22 @@ public final class AnchorRuntime {
 
     private static final class HookServiceImpl implements HookService {
 
-        private final List<HookStatus> hooks = new ArrayList<>();
+        private final List<AdapterMetadata> metadata = new ArrayList<>();
 
-        private void register(HookStatus hookStatus) {
-            hooks.add(hookStatus);
+        private void register(AdapterMetadata adapterMetadata) {
+            metadata.add(adapterMetadata);
         }
 
         @Override
         public Collection<HookStatus> all() {
-            return List.copyOf(hooks);
+            return metadata.stream()
+                .map(meta -> new HookStatus(meta.name(), meta.dependency(), mapState(meta.state()), meta.providerName(), meta.message(), meta.loadMillis()))
+                .toList();
         }
 
         @Override
         public Optional<HookStatus> find(String hookName) {
-            return hooks.stream().filter(hook -> hook.hookName().equalsIgnoreCase(hookName)).findFirst();
+            return all().stream().filter(hook -> hook.hookName().equalsIgnoreCase(hookName)).findFirst();
         }
 
         @Override
@@ -296,36 +374,51 @@ public final class AnchorRuntime {
         }
     }
 
-    private static final class DiagnosticsServiceImpl implements DiagnosticsService {
+    private final class DiagnosticsServiceImpl implements DiagnosticsService {
 
         private final HookServiceImpl hookService;
         private final List<AnchorService> services;
+        private final SchedulerDiagnostics schedulerDiagnostics;
 
-        private DiagnosticsServiceImpl(HookServiceImpl hookService, List<AnchorService> services) {
+        private DiagnosticsServiceImpl(HookServiceImpl hookService, List<AnchorService> services, SchedulerDiagnostics schedulerDiagnostics) {
             this.hookService = hookService;
             this.services = services;
+            this.schedulerDiagnostics = schedulerDiagnostics;
         }
 
         @Override
-        public me.zamin.anchor.api.diagnostics.DoctorReport doctor() {
-            List<String> installed = hookService.all().stream()
-                .filter(hook -> hook.state() == HookState.ACTIVE || hook.state() == HookState.FALLBACK || hook.state() == HookState.SKELETON)
-                .map(HookStatus::hookName)
-                .toList();
-            List<String> missing = hookService.all().stream()
-                .filter(hook -> hook.state() == HookState.MISSING || hook.state() == HookState.DISABLED || hook.state() == HookState.FAILED)
-                .map(hook -> hook.hookName() + ": " + hook.message())
-                .toList();
-            List<String> unavailable = services.stream()
-                .filter(service -> !service.isAvailable())
-                .map(service -> service.getClass().getInterfaces()[0].getSimpleName() + " via " + service.providerName())
-                .toList();
-            List<String> notes = List.of(
-                "Citizens and ProtocolLib are currently skeleton hooks in this foundation.",
-                "Folia is not claimed as supported yet; scheduler API is future-ready but runtime is Bukkit/Paper-first.",
-                "Missing optional dependencies should degrade to fallbacks, not plugin crashes."
+        public DoctorReport doctor() {
+            List<DoctorMessage> messages = new ArrayList<>();
+            if (schedulerDiagnostics.foliaDetected()) {
+                messages.add(new DoctorMessage(DiagnosticSeverity.WARNING, "FOLIA_DETECTED", "Folia detected. Use Anchor scheduler contexts instead of direct BukkitScheduler usage."));
+            } else {
+                messages.add(new DoctorMessage(DiagnosticSeverity.INFO, "PAPER_OR_BUKKIT", "Folia not detected. Region and entity scheduling fall back to global scheduling."));
+            }
+            for (HookStatus hook : hookService.all()) {
+                if (hook.state() == HookState.MISSING || hook.state() == HookState.DISABLED || hook.state() == HookState.FAILED) {
+                    messages.add(new DoctorMessage(DiagnosticSeverity.WARNING, "HOOK_" + hook.hookName().toUpperCase().replace(' ', '_'), hook.message()));
+                }
+                if (hook.hookName().equalsIgnoreCase("WorldGuard") && hook.message().contains("v7+")) {
+                    messages.add(new DoctorMessage(DiagnosticSeverity.WARNING, "WORLDGUARD_VERSION", "Update WorldGuard to v7+ for stable region integration."));
+                }
+            }
+            for (AnchorService service : services) {
+                if (!service.isAvailable()) {
+                    messages.add(new DoctorMessage(DiagnosticSeverity.WARNING, "SERVICE_UNAVAILABLE", service.providerName() + " is unavailable for " + service.getClass().getInterfaces()[0].getSimpleName()));
+                }
+            }
+            return new DoctorReport(
+                schedulerDiagnostics,
+                startupTiming,
+                List.copyOf(hookService.all()),
+                scanPlugins(schedulerDiagnostics.foliaDetected()),
+                List.copyOf(messages)
             );
-            return new me.zamin.anchor.api.diagnostics.DoctorReport(installed, missing, unavailable, notes);
+        }
+
+        @Override
+        public SchedulerDiagnostics schedulerDiagnostics() {
+            return schedulerDiagnostics;
         }
 
         @Override
@@ -341,6 +434,77 @@ public final class AnchorRuntime {
         @Override
         public ServiceStatus status() {
             return ServiceStatus.AVAILABLE;
+        }
+
+        private List<PluginCompatibilityReport> scanPlugins(boolean foliaDetected) {
+            List<PluginCompatibilityReport> reports = new ArrayList<>();
+            for (Plugin candidate : plugin.getServer().getPluginManager().getPlugins()) {
+                if (candidate.getName().equalsIgnoreCase("Anchor")) {
+                    continue;
+                }
+                List<DoctorMessage> issues = new ArrayList<>();
+                boolean foliaDeclared = false;
+                boolean directSchedulerUsage = false;
+                try {
+                    Path jarPath = pluginJar(candidate);
+                    if (jarPath != null && Files.exists(jarPath)) {
+                        foliaDeclared = containsPluginYamlFlag(jarPath, "folia-supported: true");
+                        directSchedulerUsage = containsSchedulerMarkers(jarPath);
+                    }
+                } catch (IOException ex) {
+                    issues.add(new DoctorMessage(DiagnosticSeverity.WARNING, "SCAN_FAILED", "Could not inspect plugin jar for " + candidate.getName() + ": " + ex.getMessage()));
+                }
+                if (foliaDetected && !foliaDeclared) {
+                    issues.add(new DoctorMessage(DiagnosticSeverity.WARNING, "MISSING_FOLIA_DECLARATION", candidate.getName() + " does not declare folia-supported: true."));
+                }
+                if (foliaDetected && directSchedulerUsage) {
+                    issues.add(new DoctorMessage(DiagnosticSeverity.WARNING, "DIRECT_SCHEDULER_USAGE", candidate.getName() + " may call BukkitScheduler directly."));
+                }
+                reports.add(new PluginCompatibilityReport(candidate.getName(), candidate.getPluginMeta().getVersion(), foliaDeclared, directSchedulerUsage, List.copyOf(issues)));
+            }
+            return reports;
+        }
+
+        private Path pluginJar(Plugin candidate) {
+            CodeSource source = candidate.getClass().getProtectionDomain().getCodeSource();
+            if (source == null || source.getLocation() == null) {
+                return null;
+            }
+            try {
+                return Path.of(source.getLocation().toURI());
+            } catch (URISyntaxException ex) {
+                return Path.of(source.getLocation().getPath());
+            }
+        }
+
+        private boolean containsPluginYamlFlag(Path jarPath, String flag) throws IOException {
+            try (ZipFile zipFile = new ZipFile(jarPath.toFile())) {
+                ZipEntry entry = zipFile.getEntry("plugin.yml");
+                if (entry == null) {
+                    return false;
+                }
+                try (InputStream inputStream = zipFile.getInputStream(entry)) {
+                    String yaml = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+                    return yaml.contains(flag);
+                }
+            }
+        }
+
+        private boolean containsSchedulerMarkers(Path jarPath) throws IOException {
+            try (ZipFile zipFile = new ZipFile(jarPath.toFile())) {
+                return zipFile.stream()
+                    .filter(entry -> entry.getName().endsWith(".class"))
+                    .anyMatch(entry -> classContainsMarker(zipFile, entry));
+            }
+        }
+
+        private boolean classContainsMarker(ZipFile zipFile, ZipEntry entry) {
+            try (InputStream inputStream = zipFile.getInputStream(entry)) {
+                String contents = new String(inputStream.readAllBytes(), StandardCharsets.ISO_8859_1);
+                return DIRECT_SCHEDULER_MARKERS.stream().anyMatch(contents::contains);
+            } catch (IOException ex) {
+                return false;
+            }
         }
     }
 

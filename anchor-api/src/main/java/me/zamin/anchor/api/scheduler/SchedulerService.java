@@ -4,19 +4,22 @@ import me.zamin.anchor.api.AnchorService;
 import org.bukkit.Location;
 import org.bukkit.entity.Entity;
 
+/**
+ * Platform-neutral scheduling facade. The public API does not expose Folia classes.
+ */
 public interface SchedulerService extends AnchorService {
 
-    TaskHandle runGlobal(Runnable task);
+    TaskScheduler global();
 
-    TaskHandle runAsync(Runnable task);
+    AsyncTaskScheduler async();
 
-    TaskHandle runLaterGlobal(Runnable task, long delayTicks);
+    TaskScheduler region(Location location);
 
-    TaskHandle runRepeatingGlobal(Runnable task, long delayTicks, long periodTicks);
+    TaskScheduler entity(Entity entity);
 
-    TaskHandle runAtLocation(Location location, Runnable task);
+    SchedulerPlatform platform();
 
-    TaskHandle runForEntity(Entity entity, Runnable task);
+    SchedulerDiagnostics diagnostics();
 
     void cancel(TaskHandle handle);
 }

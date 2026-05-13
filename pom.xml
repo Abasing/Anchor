@@ -5,7 +5,7 @@
 
     <groupId>me.zamin</groupId>
     <artifactId>anchor-parent</artifactId>
-    <version>1.1.0-SNAPSHOT</version>
+    <version>1.2.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>Anchor Parent</name>
@@ -17,6 +17,12 @@
         <module>anchor-plugin</module>
         <module>anchor-test-plugin</module>
         <module>anchor-docs</module>
+        <module>examples/basic-economy</module>
+        <module>examples/gui-demo</module>
+        <module>examples/scheduler-demo</module>
+        <module>examples/folia-safe-tasks</module>
+        <module>examples/placeholders</module>
+        <module>examples/regions</module>
     </modules>
 
     <properties>

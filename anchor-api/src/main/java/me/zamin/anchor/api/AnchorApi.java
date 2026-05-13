@@ -11,6 +11,9 @@ import me.zamin.anchor.api.regions.RegionService;
 import me.zamin.anchor.api.scheduler.SchedulerService;
 import me.zamin.anchor.api.services.ServiceRegistry;
 
+/**
+ * Stable public entrypoint for Anchor 1.x consumers.
+ */
 public interface AnchorApi {
 
     EconomyService economy();

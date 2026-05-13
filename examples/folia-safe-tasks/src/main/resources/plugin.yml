@@ -1,0 +1,5 @@
+name: AnchorExampleFoliaSafeTasks
+main: me.zamin.anchor.examples.foliasafe.FoliaSafeTasksPlugin
+version: ${project.version}
+api-version: "1.20"
+depend: [Anchor]

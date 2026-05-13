@@ -1,7 +1,6 @@
 package me.zamin.anchor.testplugin;
 
 import me.zamin.anchor.api.Anchor;
-import me.zamin.anchor.api.gui.GuiFactory;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.command.Command;
@@ -32,7 +31,7 @@ public final class AnchorTestPlugin extends JavaPlugin {
             .item(13, emerald, event -> event.getWhoClicked().sendMessage("Clicked through Anchor."))
             .open(player);
 
-        Anchor.api().scheduler().runLaterGlobal(() -> player.sendMessage("Scheduled through Anchor."), 20L);
+        Anchor.api().scheduler().entity(player).runLater(() -> player.sendMessage("Scheduled through Anchor."), 20L);
         return true;
     }
 }
