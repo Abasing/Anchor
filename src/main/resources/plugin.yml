@@ -1,0 +1,37 @@
+name: Anchor
+main: dev.anchor.AnchorPlugin
+version: ${project.version}
+api-version: "1.20"
+softdepend:
+  - Vault
+  - LuckPerms
+  - PlaceholderAPI
+  - WorldGuard
+  - Citizens
+  - ProtocolLib
+commands:
+  anchor:
+    description: Anchor administration command
+    usage: /anchor <status|hooks|version|reload>
+    aliases: [anc]
+permissions:
+  anchor.admin:
+    description: Full access to Anchor administration
+    default: op
+    children:
+      anchor.command.status: true
+      anchor.command.hooks: true
+      anchor.command.version: true
+      anchor.command.reload: true
+  anchor.command.status:
+    description: View Anchor status
+    default: op
+  anchor.command.hooks:
+    description: View Anchor hook status
+    default: op
+  anchor.command.version:
+    description: View Anchor version
+    default: true
+  anchor.command.reload:
+    description: Reload Anchor configuration
+    default: op
