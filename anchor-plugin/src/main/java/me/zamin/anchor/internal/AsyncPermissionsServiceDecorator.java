@@ -4,6 +4,8 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import me.zamin.anchor.api.permissions.PermissionBatchOptions;
+import me.zamin.anchor.api.permissions.PermissionBatchResult;
 import me.zamin.anchor.api.ServiceStatus;
 import me.zamin.anchor.api.permissions.PermissionResult;
 import me.zamin.anchor.api.permissions.PermissionsService;
@@ -93,6 +95,46 @@ final class AsyncPermissionsServiceDecorator implements PermissionsService {
     }
 
     @Override
+    public CompletableFuture<PermissionBatchResult> grantAllAsync(UUID playerId, java.util.Collection<String> permissions) {
+        return batchAsync(() -> delegate.grantAllAsync(playerId, permissions).join(), delegate.grantAllAsync(playerId, permissions));
+    }
+
+    @Override
+    public CompletableFuture<PermissionBatchResult> grantAllAsync(UUID playerId, java.util.Collection<String> permissions, PermissionBatchOptions options) {
+        return batchAsync(() -> delegate.grantAllAsync(playerId, permissions, options).join(), delegate.grantAllAsync(playerId, permissions, options));
+    }
+
+    @Override
+    public CompletableFuture<PermissionBatchResult> grantAllAsync(UUID playerId, String world, java.util.Collection<String> permissions) {
+        return batchAsync(() -> delegate.grantAllAsync(playerId, world, permissions).join(), delegate.grantAllAsync(playerId, world, permissions));
+    }
+
+    @Override
+    public CompletableFuture<PermissionBatchResult> grantAllAsync(UUID playerId, String world, java.util.Collection<String> permissions, PermissionBatchOptions options) {
+        return batchAsync(() -> delegate.grantAllAsync(playerId, world, permissions, options).join(), delegate.grantAllAsync(playerId, world, permissions, options));
+    }
+
+    @Override
+    public CompletableFuture<PermissionBatchResult> revokeAllAsync(UUID playerId, java.util.Collection<String> permissions) {
+        return batchAsync(() -> delegate.revokeAllAsync(playerId, permissions).join(), delegate.revokeAllAsync(playerId, permissions));
+    }
+
+    @Override
+    public CompletableFuture<PermissionBatchResult> revokeAllAsync(UUID playerId, java.util.Collection<String> permissions, PermissionBatchOptions options) {
+        return batchAsync(() -> delegate.revokeAllAsync(playerId, permissions, options).join(), delegate.revokeAllAsync(playerId, permissions, options));
+    }
+
+    @Override
+    public CompletableFuture<PermissionBatchResult> revokeAllAsync(UUID playerId, String world, java.util.Collection<String> permissions) {
+        return batchAsync(() -> delegate.revokeAllAsync(playerId, world, permissions).join(), delegate.revokeAllAsync(playerId, world, permissions));
+    }
+
+    @Override
+    public CompletableFuture<PermissionBatchResult> revokeAllAsync(UUID playerId, String world, java.util.Collection<String> permissions, PermissionBatchOptions options) {
+        return batchAsync(() -> delegate.revokeAllAsync(playerId, world, permissions, options).join(), delegate.revokeAllAsync(playerId, world, permissions, options));
+    }
+
+    @Override
     public boolean isAvailable() {
         return delegate.isAvailable();
     }
@@ -114,8 +156,20 @@ final class AsyncPermissionsServiceDecorator implements PermissionsService {
         return scheduler.async().supplyAsync(fallbackSupplier::get);
     }
 
+    private CompletableFuture<PermissionBatchResult> batchAsync(BatchSupplier fallbackSupplier, CompletableFuture<PermissionBatchResult> nativeFuture) {
+        if (nativeAsyncMutations) {
+            return nativeFuture;
+        }
+        return scheduler.async().supplyAsync(fallbackSupplier::get);
+    }
+
     @FunctionalInterface
     private interface SupplierWithResult {
         PermissionResult get();
+    }
+
+    @FunctionalInterface
+    private interface BatchSupplier {
+        PermissionBatchResult get();
     }
 }

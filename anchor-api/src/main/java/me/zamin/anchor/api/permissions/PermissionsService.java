@@ -1,9 +1,15 @@
 package me.zamin.anchor.api.permissions;
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
 import me.zamin.anchor.api.AnchorService;
 import org.bukkit.entity.Player;
 
@@ -209,5 +215,268 @@ public interface PermissionsService extends AnchorService {
      */
     default CompletableFuture<PermissionResult> revokeAsync(UUID playerId, String world, String permission) {
         return CompletableFuture.completedFuture(revoke(playerId, world, permission));
+    }
+
+    /**
+     * Grants multiple global permissions asynchronously using the default batch
+     * behavior.
+     * <p>
+     * Batch operations are not database transactions. Check the returned result
+     * for partial success and rollback state.
+     *
+     * @param playerId non-null player UUID
+     * @param permissions non-null collection of permission nodes
+     * @return non-null future containing the batch result
+     */
+    default CompletableFuture<PermissionBatchResult> grantAllAsync(UUID playerId, Collection<String> permissions) {
+        return grantAllAsync(playerId, permissions, PermissionBatchOptions.defaults());
+    }
+
+    /**
+     * Grants multiple global permissions asynchronously with explicit batch
+     * options.
+     * <p>
+     * Rollback is best-effort only. Providers may vary in how much state can be
+     * reverted safely after a partial failure.
+     *
+     * @param playerId non-null player UUID
+     * @param permissions non-null collection of permission nodes
+     * @param options non-null batch options
+     * @return non-null future containing the batch result
+     */
+    default CompletableFuture<PermissionBatchResult> grantAllAsync(UUID playerId, Collection<String> permissions, PermissionBatchOptions options) {
+        List<String> attemptedPermissions = normalizeBatchPermissions(permissions);
+        return mutateBatchAsync(
+            attemptedPermissions,
+            Objects.requireNonNull(options, "options"),
+            permission -> grantAsync(playerId, permission),
+            permission -> revokeAsync(playerId, permission),
+            false
+        );
+    }
+
+    /**
+     * Grants multiple world-aware permissions asynchronously using the default
+     * batch behavior.
+     *
+     * @param playerId non-null player UUID
+     * @param world non-null world name
+     * @param permissions non-null collection of permission nodes
+     * @return non-null future containing the batch result
+     */
+    default CompletableFuture<PermissionBatchResult> grantAllAsync(UUID playerId, String world, Collection<String> permissions) {
+        return grantAllAsync(playerId, world, permissions, PermissionBatchOptions.defaults());
+    }
+
+    /**
+     * Grants multiple world-aware permissions asynchronously with explicit
+     * batch options.
+     *
+     * @param playerId non-null player UUID
+     * @param world non-null world name
+     * @param permissions non-null collection of permission nodes
+     * @param options non-null batch options
+     * @return non-null future containing the batch result
+     */
+    default CompletableFuture<PermissionBatchResult> grantAllAsync(UUID playerId, String world, Collection<String> permissions, PermissionBatchOptions options) {
+        List<String> attemptedPermissions = normalizeBatchPermissions(permissions);
+        return mutateBatchAsync(
+            attemptedPermissions,
+            Objects.requireNonNull(options, "options"),
+            permission -> grantAsync(playerId, world, permission),
+            permission -> revokeAsync(playerId, world, permission),
+            false
+        );
+    }
+
+    /**
+     * Revokes multiple global permissions asynchronously using the default
+     * batch behavior.
+     *
+     * @param playerId non-null player UUID
+     * @param permissions non-null collection of permission nodes
+     * @return non-null future containing the batch result
+     */
+    default CompletableFuture<PermissionBatchResult> revokeAllAsync(UUID playerId, Collection<String> permissions) {
+        return revokeAllAsync(playerId, permissions, PermissionBatchOptions.defaults());
+    }
+
+    /**
+     * Revokes multiple global permissions asynchronously with explicit batch
+     * options.
+     *
+     * @param playerId non-null player UUID
+     * @param permissions non-null collection of permission nodes
+     * @param options non-null batch options
+     * @return non-null future containing the batch result
+     */
+    default CompletableFuture<PermissionBatchResult> revokeAllAsync(UUID playerId, Collection<String> permissions, PermissionBatchOptions options) {
+        List<String> attemptedPermissions = normalizeBatchPermissions(permissions);
+        return mutateBatchAsync(
+            attemptedPermissions,
+            Objects.requireNonNull(options, "options"),
+            permission -> revokeAsync(playerId, permission),
+            permission -> grantAsync(playerId, permission),
+            true
+        );
+    }
+
+    /**
+     * Revokes multiple world-aware permissions asynchronously using the default
+     * batch behavior.
+     *
+     * @param playerId non-null player UUID
+     * @param world non-null world name
+     * @param permissions non-null collection of permission nodes
+     * @return non-null future containing the batch result
+     */
+    default CompletableFuture<PermissionBatchResult> revokeAllAsync(UUID playerId, String world, Collection<String> permissions) {
+        return revokeAllAsync(playerId, world, permissions, PermissionBatchOptions.defaults());
+    }
+
+    /**
+     * Revokes multiple world-aware permissions asynchronously with explicit
+     * batch options.
+     *
+     * @param playerId non-null player UUID
+     * @param world non-null world name
+     * @param permissions non-null collection of permission nodes
+     * @param options non-null batch options
+     * @return non-null future containing the batch result
+     */
+    default CompletableFuture<PermissionBatchResult> revokeAllAsync(UUID playerId, String world, Collection<String> permissions, PermissionBatchOptions options) {
+        List<String> attemptedPermissions = normalizeBatchPermissions(permissions);
+        return mutateBatchAsync(
+            attemptedPermissions,
+            Objects.requireNonNull(options, "options"),
+            permission -> revokeAsync(playerId, world, permission),
+            permission -> grantAsync(playerId, world, permission),
+            true
+        );
+    }
+
+    private CompletableFuture<PermissionBatchResult> mutateBatchAsync(
+        List<String> attemptedPermissions,
+        PermissionBatchOptions options,
+        Function<String, CompletableFuture<PermissionResult>> mutate,
+        Function<String, CompletableFuture<PermissionResult>> rollbackMutate,
+        boolean revokeOperation
+    ) {
+        if (attemptedPermissions.isEmpty()) {
+            return CompletableFuture.completedFuture(PermissionBatchResult.success(
+                providerName(),
+                attemptedPermissions,
+                List.of(),
+                revokeOperation ? "No permissions were provided for batch revoke." : "No permissions were provided for batch grant."
+            ));
+        }
+
+        List<String> successfulPermissions = new ArrayList<>();
+        List<PermissionOperationResult> failedPermissions = new ArrayList<>();
+        CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
+
+        for (String permission : attemptedPermissions) {
+            chain = chain.thenCompose(ignored -> {
+                if (!failedPermissions.isEmpty() && (options.rollbackOnFailure() || !options.continueOnFailure())) {
+                    return CompletableFuture.completedFuture(null);
+                }
+                return mutate.apply(permission).thenAccept(result -> {
+                    if (result.success()) {
+                        successfulPermissions.add(permission);
+                    } else {
+                        failedPermissions.add(PermissionOperationResult.from(permission, result));
+                    }
+                });
+            });
+        }
+
+        return chain.thenCompose(ignored -> {
+            if (failedPermissions.isEmpty()) {
+                return CompletableFuture.completedFuture(PermissionBatchResult.success(
+                    providerName(),
+                    attemptedPermissions,
+                    successfulPermissions,
+                    batchSuccessReason(revokeOperation, successfulPermissions.size())
+                ));
+            }
+
+            if (!options.rollbackOnFailure() || successfulPermissions.isEmpty()) {
+                return CompletableFuture.completedFuture(PermissionBatchResult.failure(
+                    providerName(),
+                    attemptedPermissions,
+                    successfulPermissions,
+                    failedPermissions,
+                    false,
+                    false,
+                    List.of(),
+                    List.of(),
+                    batchFailureReason(revokeOperation, failedPermissions.size(), successfulPermissions.size(), options)
+                ));
+            }
+
+            List<String> rollbackTargets = new ArrayList<>(successfulPermissions);
+            Collections.reverse(rollbackTargets);
+            return rollbackBatchAsync(rollbackTargets, rollbackMutate).thenApply(rollback -> PermissionBatchResult.failure(
+                providerName(),
+                attemptedPermissions,
+                successfulPermissions,
+                failedPermissions,
+                true,
+                rollback.rollbackFailures().isEmpty(),
+                rollback.rolledBackPermissions(),
+                rollback.rollbackFailures(),
+                rollbackFailureReason(revokeOperation, failedPermissions.size(), rollback)
+            ));
+        });
+    }
+
+    private static CompletableFuture<RollbackState> rollbackBatchAsync(
+        List<String> rollbackTargets,
+        Function<String, CompletableFuture<PermissionResult>> rollbackMutate
+    ) {
+        List<String> rolledBackPermissions = new ArrayList<>();
+        List<PermissionOperationResult> rollbackFailures = new ArrayList<>();
+        CompletableFuture<Void> chain = CompletableFuture.completedFuture(null);
+
+        for (String permission : rollbackTargets) {
+            chain = chain.thenCompose(ignored -> rollbackMutate.apply(permission).thenAccept(result -> {
+                if (result.success()) {
+                    rolledBackPermissions.add(permission);
+                } else {
+                    rollbackFailures.add(PermissionOperationResult.from(permission, result));
+                }
+            }));
+        }
+
+        return chain.thenApply(ignored -> new RollbackState(List.copyOf(rolledBackPermissions), List.copyOf(rollbackFailures)));
+    }
+
+    private static List<String> normalizeBatchPermissions(Collection<String> permissions) {
+        Objects.requireNonNull(permissions, "permissions");
+        List<String> normalized = new ArrayList<>(permissions.size());
+        for (String permission : permissions) {
+            normalized.add(Objects.requireNonNull(permission, "permission"));
+        }
+        return List.copyOf(normalized);
+    }
+
+    private static String batchSuccessReason(boolean revokeOperation, int successfulCount) {
+        return (revokeOperation ? "Revoked " : "Granted ") + successfulCount + " permission(s) successfully.";
+    }
+
+    private static String batchFailureReason(boolean revokeOperation, int failedCount, int successfulCount, PermissionBatchOptions options) {
+        String action = revokeOperation ? "revoke" : "grant";
+        if (options.continueOnFailure()) {
+            return "Batch " + action + " completed with " + successfulCount + " success(es) and " + failedCount + " failure(s).";
+        }
+        return "Batch " + action + " stopped after " + failedCount + " failure(s) and " + successfulCount + " success(es).";
+    }
+
+    private static String rollbackFailureReason(boolean revokeOperation, int failedCount, RollbackState rollbackState) {
+        String action = revokeOperation ? "revoke" : "grant";
+        if (rollbackState.rollbackFailures().isEmpty()) {
+            return "Batch " + action + " failed after " + failedCount + " failure(s). Best-effort rollback succeeded for previously successful permissions.";
+        }
+        return "Batch " + action + " failed after " + failedCount + " failure(s). Rollback was attempted but did not fully succeed.";
     }
 }

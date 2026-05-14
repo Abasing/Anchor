@@ -1,11 +1,15 @@
 package me.zamin.anchor.adapters;
 
 import java.util.Collections;
+import java.util.Collection;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import me.zamin.anchor.api.ServiceStatus;
+import me.zamin.anchor.api.permissions.PermissionBatchOptions;
+import me.zamin.anchor.api.permissions.PermissionBatchResult;
+import me.zamin.anchor.api.permissions.PermissionOperationResult;
 import me.zamin.anchor.api.permissions.PermissionResult;
 import me.zamin.anchor.api.permissions.PermissionsService;
 import org.bukkit.Bukkit;
@@ -86,6 +90,26 @@ public final class BukkitPermissionsService implements PermissionsService {
     }
 
     @Override
+    public CompletableFuture<PermissionBatchResult> grantAllAsync(UUID playerId, Collection<String> permissions, PermissionBatchOptions options) {
+        return CompletableFuture.completedFuture(unsupportedBatch(permissions, "Bukkit fallback permissions do not support batch grant operations."));
+    }
+
+    @Override
+    public CompletableFuture<PermissionBatchResult> grantAllAsync(UUID playerId, String world, Collection<String> permissions, PermissionBatchOptions options) {
+        return CompletableFuture.completedFuture(unsupportedBatch(permissions, "Bukkit fallback permissions do not support world-aware batch grant operations."));
+    }
+
+    @Override
+    public CompletableFuture<PermissionBatchResult> revokeAllAsync(UUID playerId, Collection<String> permissions, PermissionBatchOptions options) {
+        return CompletableFuture.completedFuture(unsupportedBatch(permissions, "Bukkit fallback permissions do not support batch revoke operations."));
+    }
+
+    @Override
+    public CompletableFuture<PermissionBatchResult> revokeAllAsync(UUID playerId, String world, Collection<String> permissions, PermissionBatchOptions options) {
+        return CompletableFuture.completedFuture(unsupportedBatch(permissions, "Bukkit fallback permissions do not support world-aware batch revoke operations."));
+    }
+
+    @Override
     public boolean isAvailable() {
         return true;
     }
@@ -98,5 +122,23 @@ public final class BukkitPermissionsService implements PermissionsService {
     @Override
     public ServiceStatus status() {
         return ServiceStatus.FALLBACK;
+    }
+
+    private PermissionBatchResult unsupportedBatch(Collection<String> permissions, String reason) {
+        java.util.List<String> attemptedPermissions = java.util.List.copyOf(permissions);
+        java.util.List<PermissionOperationResult> failedPermissions = attemptedPermissions.stream()
+            .map(permission -> new PermissionOperationResult(permission, false, false, reason))
+            .toList();
+        return PermissionBatchResult.failure(
+            providerName(),
+            attemptedPermissions,
+            java.util.List.of(),
+            failedPermissions,
+            false,
+            false,
+            java.util.List.of(),
+            java.util.List.of(),
+            reason
+        );
     }
 }

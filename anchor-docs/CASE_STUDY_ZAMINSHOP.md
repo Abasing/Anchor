@@ -29,6 +29,7 @@ reduced complexity in a live plugin instead of just looking clean in examples.
 - Anchor needed world-aware permission checks
 - Anchor needed safe permission mutation results instead of boolean-or-throw behavior
 - Anchor needed async-safe permission mutation so command-driven changes would not hide provider blocking behind a clean synchronous method
+- Anchor needed batch permission mutation semantics for purchases that grant more than one permission and may need best-effort rollback
 - consumer plugins with their own scheduler facade needed clear migration guidance
 
 ## Permission mutation: sync vs async
@@ -39,6 +40,20 @@ Anchor now supports both sync and async permission mutation.
 - async mutation is the preferred path for commands, migrations, bulk permission grants, and any flow that may load or save provider state
 - LuckPerms now uses native async user load and save paths
 - non-native providers can still be used safely through Anchor's async scheduler bridge
+
+## Batch permission mutation and best-effort rollback
+
+ZaminShop exposed the next real gap after single-permission async mutation was in place:
+
+- a purchase can grant several permissions
+- one grant may fail after earlier grants already succeeded
+- refunding money is not enough if permission state is left partially applied
+
+Anchor now exposes batch mutation results that make partial success visible and
+allow best-effort rollback for providers that can support it.
+
+This is intentionally not described as a transaction API. Providers vary, and
+callers still need to inspect the batch result instead of assuming all-or-nothing behavior.
 
 ## Why Anchor stayed optional
 

@@ -2,6 +2,8 @@ package me.zamin.anchor.testplugin;
 
 import me.zamin.anchor.api.Anchor;
 import me.zamin.anchor.api.economy.EconomyService;
+import me.zamin.anchor.api.permissions.PermissionBatchOptions;
+import me.zamin.anchor.api.permissions.PermissionBatchResult;
 import me.zamin.anchor.api.permissions.PermissionResult;
 import me.zamin.anchor.api.permissions.PermissionsService;
 import me.zamin.anchor.api.placeholders.PlaceholderService;
@@ -64,6 +66,12 @@ public final class AnchorTestPlugin extends JavaPlugin {
                         return revoke;
                     });
             });
+        permissions.grantAllAsync(
+                player.getUniqueId(),
+                java.util.List.of("anchor.test.batch.one", "anchor.test.batch.two"),
+                new PermissionBatchOptions(true, false)
+            )
+            .thenAccept(result -> notifyBatchResult(player, result));
 
         String parsed = placeholders.parse(player, "Hello {player}, online: {online}, server: {server_version}");
         player.sendMessage(parsed);
@@ -92,5 +100,17 @@ public final class AnchorTestPlugin extends JavaPlugin {
     private void notifyPermissionResult(Player player, String label, PermissionResult result) {
         Anchor.api().scheduler().entity(player)
             .run(() -> player.sendMessage(label + ": " + result.providerName() + " -> " + result.reason()));
+    }
+
+    private void notifyBatchResult(Player player, PermissionBatchResult result) {
+        Anchor.api().scheduler().entity(player).run(() -> {
+            player.sendMessage("Batch permissions via " + result.providerName() + ": " + result.reason());
+            if (!result.failedPermissions().isEmpty()) {
+                player.sendMessage("Batch failures: " + result.failedPermissions().size());
+            }
+            if (result.rollbackAttempted()) {
+                player.sendMessage("Rollback attempted: " + result.rollbackSucceeded());
+            }
+        });
     }
 }

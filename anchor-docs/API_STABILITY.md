@@ -20,6 +20,7 @@ Before Anchor 1.0 stable:
 - every breaking change must be documented in `CHANGELOG.md`
 - examples and migration docs must be updated with the new contract
 - additive API growth is preferred over replacing established contracts when consumer migrations have already started
+- consumer-discovered pain points should be resolved with the smallest additive API that keeps migration paths clean
 
 ## Post-1.0 policy
 
