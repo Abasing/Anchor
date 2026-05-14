@@ -21,6 +21,7 @@
         <module>examples/gui-demo</module>
         <module>examples/scheduler-demo</module>
         <module>examples/folia-safe-tasks</module>
+        <module>examples/stress-test-plugin</module>
         <module>examples/placeholders</module>
         <module>examples/regions</module>
     </modules>

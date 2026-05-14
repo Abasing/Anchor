@@ -12,7 +12,7 @@ softdepend:
 commands:
   anchor:
     description: Anchor administration command
-    usage: /anchor <status|hooks|doctor|reload>
+    usage: /anchor <status|hooks|doctor|metrics|reload>
     aliases: [anc]
 permissions:
   anchor.admin:
@@ -22,12 +22,15 @@ permissions:
       anchor.command.status: true
       anchor.command.hooks: true
       anchor.command.doctor: true
+      anchor.command.metrics: true
       anchor.command.reload: true
   anchor.command.status:
     default: op
   anchor.command.hooks:
     default: op
   anchor.command.doctor:
+    default: op
+  anchor.command.metrics:
     default: op
   anchor.command.reload:
     default: op

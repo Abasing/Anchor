@@ -1,0 +1,9 @@
+name: AnchorExampleStressTest
+main: me.zamin.anchor.examples.stresstest.AnchorStressTestPlugin
+version: ${project.version}
+api-version: "1.20"
+depend: [Anchor]
+commands:
+  anchorstresstest:
+    description: Stress test Anchor scheduler behavior
+    usage: /anchorstresstest <start|stop|report>

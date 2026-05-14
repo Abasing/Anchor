@@ -3,7 +3,9 @@ package me.zamin.anchor.internal;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import me.zamin.anchor.api.scheduler.TaskCallback;
 import me.zamin.anchor.api.scheduler.TaskHandle;
+import me.zamin.anchor.internal.metrics.AnchorMetrics;
 
 final class SimpleTaskHandle implements TaskHandle {
 
@@ -11,11 +13,15 @@ final class SimpleTaskHandle implements TaskHandle {
     private final boolean repeating;
     private final CompletableFuture<Void> completionFuture = new CompletableFuture<>();
     private final AtomicBoolean cancelled = new AtomicBoolean(false);
+    private final AnchorMetrics metrics;
+    private final String metricContext;
     private Runnable cancelAction = () -> {
     };
 
-    SimpleTaskHandle(boolean repeating) {
+    SimpleTaskHandle(boolean repeating, AnchorMetrics metrics, String metricContext) {
         this.repeating = repeating;
+        this.metrics = metrics;
+        this.metricContext = metricContext;
     }
 
     void setTaskId(int id) {
@@ -69,5 +75,18 @@ final class SimpleTaskHandle implements TaskHandle {
     @Override
     public CompletableFuture<Void> completionFuture() {
         return completionFuture;
+    }
+
+    @Override
+    public TaskHandle onComplete(TaskCallback callback) {
+        completionFuture().whenComplete((ignored, throwable) -> {
+            long start = System.nanoTime();
+            try {
+                callback.accept(this, throwable);
+            } finally {
+                metrics.recordTiming("scheduler.callback." + metricContext, System.nanoTime() - start);
+            }
+        });
+        return this;
     }
 }

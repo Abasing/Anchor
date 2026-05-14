@@ -2,6 +2,7 @@ package me.zamin.anchor.plugin;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import me.zamin.anchor.api.Anchor;
 import me.zamin.anchor.api.diagnostics.DiagnosticSeverity;
 import me.zamin.anchor.api.diagnostics.DoctorMessage;
@@ -9,6 +10,8 @@ import me.zamin.anchor.api.diagnostics.DoctorReport;
 import me.zamin.anchor.api.diagnostics.PluginCompatibilityReport;
 import me.zamin.anchor.api.hooks.HookState;
 import me.zamin.anchor.api.hooks.HookStatus;
+import me.zamin.anchor.internal.metrics.MetricSnapshot;
+import me.zamin.anchor.internal.metrics.MetricsSnapshot;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -25,22 +28,26 @@ public final class AnchorCommand implements CommandExecutor, TabCompleter {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        long start = System.nanoTime();
         String subcommand = args.length == 0 ? "status" : args[0].toLowerCase(Locale.ROOT);
-        return switch (subcommand) {
+        boolean handled = switch (subcommand) {
             case "status" -> handleStatus(sender);
             case "hooks" -> handleHooks(sender);
             case "doctor" -> handleDoctor(sender);
+            case "metrics" -> handleMetrics(sender);
             case "reload" -> handleReload(sender);
             default -> {
-                sender.sendMessage(ChatColor.RED + "Usage: /anchor <status|hooks|doctor|reload>");
+                sender.sendMessage(ChatColor.RED + "Usage: /anchor <status|hooks|doctor|metrics|reload>");
                 yield true;
             }
         };
+        plugin.runtime().recordCommandTiming(subcommand, System.nanoTime() - start);
+        return handled;
     }
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
-        return args.length == 1 ? List.of("status", "hooks", "doctor", "reload") : List.of();
+        return args.length == 1 ? List.of("status", "hooks", "doctor", "metrics", "reload") : List.of();
     }
 
     private boolean handleStatus(CommandSender sender) {
@@ -67,6 +74,26 @@ public final class AnchorCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(ChatColor.GOLD + "Anchor hooks");
         for (HookStatus hook : Anchor.api().hooks().all()) {
             sender.sendMessage(ChatColor.GRAY + " - " + hook.hookName() + " | " + hook.state() + " | " + hook.message() + " | " + hook.loadMillis() + "ms");
+        }
+        return true;
+    }
+
+    private boolean handleMetrics(CommandSender sender) {
+        if (!sender.hasPermission("anchor.command.metrics")) {
+            return deny(sender);
+        }
+        MetricsSnapshot snapshot = plugin.runtime().metricsSnapshot();
+        sender.sendMessage(ChatColor.GOLD + "Anchor metrics");
+        sender.sendMessage(ChatColor.YELLOW + "Validation issues: " + plugin.runtime().validationReport().issues().size());
+        for (Map.Entry<String, Long> entry : snapshot.counters().entrySet()) {
+            sender.sendMessage(ChatColor.GRAY + " - " + entry.getKey() + ": " + entry.getValue());
+        }
+        for (Map.Entry<String, MetricSnapshot> entry : snapshot.timings().entrySet()) {
+            MetricSnapshot metric = entry.getValue();
+            sender.sendMessage(ChatColor.DARK_GRAY + " - " + entry.getKey()
+                + ": count=" + metric.count()
+                + ", avg=" + String.format(Locale.ROOT, "%.3f", metric.averageMillis()) + "ms"
+                + ", max=" + String.format(Locale.ROOT, "%.3f", metric.maxMillis()) + "ms");
         }
         return true;
     }

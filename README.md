@@ -48,6 +48,7 @@ Anchor.api().scheduler().entity(player).runLater(() -> player.sendMessage("Safe 
 - Example plugins are included as real buildable modules.
 - Migration notes are included in `anchor-docs`.
 - `/anchor doctor` is designed to explain runtime conditions instead of just dumping booleans.
+- `/anchor metrics` exposes lightweight runtime timings and scheduler counters.
 
 ## Scheduler Direction
 
@@ -91,3 +92,10 @@ mvn clean package
 - `anchor-test-plugin`: copyable integration example
 - `anchor-docs`: migration notes and design docs
 - `examples/*`: independently compiling example plugins for focused usage patterns
+
+## Validation tooling
+
+- `/anchor doctor`: runtime conditions, missing hooks, compatibility warnings, and validation findings
+- `/anchor metrics`: lightweight operational timings and scheduler counters
+- `examples/folia-safe-tasks`: focused scheduler usage example
+- `examples/stress-test-plugin`: load-oriented scheduler validation example
