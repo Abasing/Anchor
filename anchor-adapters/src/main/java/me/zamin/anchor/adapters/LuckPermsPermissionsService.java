@@ -6,10 +6,14 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import me.zamin.anchor.api.ServiceStatus;
+import me.zamin.anchor.api.permissions.PermissionResult;
 import me.zamin.anchor.api.permissions.PermissionsService;
 import net.luckperms.api.LuckPerms;
 import net.luckperms.api.cacheddata.CachedPermissionData;
+import net.luckperms.api.context.ImmutableContextSet;
+import net.luckperms.api.model.data.DataMutateResult;
 import net.luckperms.api.model.user.User;
+import net.luckperms.api.node.Node;
 import net.luckperms.api.node.NodeType;
 import net.luckperms.api.node.types.InheritanceNode;
 import net.luckperms.api.query.QueryOptions;
@@ -38,8 +42,29 @@ public final class LuckPermsPermissionsService implements PermissionsService {
     }
 
     @Override
+    public boolean has(UUID playerId, String world, String permission) {
+        if (world == null || world.isBlank()) {
+            return has(playerId, permission);
+        }
+        User user = luckPerms.getUserManager().getUser(playerId);
+        if (user == null) {
+            Player player = Bukkit.getPlayer(playerId);
+            return player != null
+                && player.getWorld().getName().equalsIgnoreCase(world)
+                && player.hasPermission(permission);
+        }
+        CachedPermissionData data = user.getCachedData().getPermissionData(worldQueryOptions(world));
+        return data.checkPermission(permission).asBoolean();
+    }
+
+    @Override
     public boolean has(Player player, String permission) {
         return player != null && has(player.getUniqueId(), permission);
+    }
+
+    @Override
+    public boolean has(Player player, String world, String permission) {
+        return player != null && has(player.getUniqueId(), world, permission);
     }
 
     @Override
@@ -62,6 +87,26 @@ public final class LuckPermsPermissionsService implements PermissionsService {
     }
 
     @Override
+    public PermissionResult grant(UUID playerId, String permission) {
+        return mutate(playerId, buildNode(permission, null), false, null);
+    }
+
+    @Override
+    public PermissionResult revoke(UUID playerId, String permission) {
+        return mutate(playerId, buildNode(permission, null), true, null);
+    }
+
+    @Override
+    public PermissionResult grant(UUID playerId, String world, String permission) {
+        return mutate(playerId, buildNode(permission, world), false, world);
+    }
+
+    @Override
+    public PermissionResult revoke(UUID playerId, String world, String permission) {
+        return mutate(playerId, buildNode(permission, world), true, world);
+    }
+
+    @Override
     public boolean isAvailable() {
         return true;
     }
@@ -74,5 +119,54 @@ public final class LuckPermsPermissionsService implements PermissionsService {
     @Override
     public ServiceStatus status() {
         return ServiceStatus.AVAILABLE;
+    }
+
+    private QueryOptions worldQueryOptions(String world) {
+        ImmutableContextSet context = luckPerms.getContextManager().getContextSetFactory().immutableOf("world", world);
+        return QueryOptions.contextual(context);
+    }
+
+    private Node buildNode(String permission, String world) {
+        if (world == null || world.isBlank()) {
+            return Node.builder(permission).build();
+        }
+        return Node.builder(permission).withContext("world", world).build();
+    }
+
+    private PermissionResult mutate(UUID playerId, Node node, boolean revoke, String world) {
+        boolean loadedBefore = luckPerms.getUserManager().isLoaded(playerId);
+        try {
+            User user = luckPerms.getUserManager().loadUser(playerId).join();
+            DataMutateResult result = revoke ? user.data().remove(node) : user.data().add(node);
+            if (result.wasSuccessful()) {
+                luckPerms.getUserManager().saveUser(user).join();
+                return PermissionResult.success(providerName(), mutationMessage(revoke, node.getKey(), world));
+            }
+            return PermissionResult.failure(providerName(), mutateFailureReason(revoke, result, node.getKey(), world));
+        } catch (RuntimeException exception) {
+            return PermissionResult.failure(providerName(), "LuckPerms mutation failed: " + exception.getMessage());
+        } finally {
+            if (!loadedBefore) {
+                User user = luckPerms.getUserManager().getUser(playerId);
+                if (user != null) {
+                    luckPerms.getUserManager().cleanupUser(user);
+                }
+            }
+        }
+    }
+
+    private String mutationMessage(boolean revoke, String permission, String world) {
+        String scope = world == null || world.isBlank() ? "globally" : "in world " + world;
+        return (revoke ? "Revoked " : "Granted ") + permission + " " + scope + ".";
+    }
+
+    private String mutateFailureReason(boolean revoke, DataMutateResult result, String permission, String world) {
+        String scope = world == null || world.isBlank() ? "global scope" : "world " + world;
+        return switch (result) {
+            case FAIL_ALREADY_HAS -> "LuckPerms already has " + permission + " in " + scope + ".";
+            case FAIL_LACKS -> "LuckPerms could not remove " + permission + " because it is not present in " + scope + ".";
+            case FAIL -> "LuckPerms returned a generic failure while attempting to " + (revoke ? "revoke " : "grant ") + permission + " in " + scope + ".";
+            case SUCCESS -> mutationMessage(revoke, permission, world);
+        };
     }
 }

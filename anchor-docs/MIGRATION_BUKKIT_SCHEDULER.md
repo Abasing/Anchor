@@ -40,3 +40,18 @@ Async work:
 Anchor.api().scheduler().async().supplyAsync(() -> expensiveLookup())
     .thenAccept(result -> Anchor.api().scheduler().entity(player).run(() -> applyResult(player, result)));
 ```
+
+## Consumer plugin adapter pattern
+
+If your plugin already has its own scheduler facade, do not rewrite every call
+site just to adopt Anchor.
+
+Write one adapter from your existing scheduler abstraction to Anchor's
+`global()`, `async()`, `region(location)`, and `entity(entity)` contexts.
+
+That keeps the migration local to your infrastructure code and lets the rest of
+the plugin keep calling the same scheduler interface it already knows.
+
+This was the cleanest migration path for ZaminShop: the plugin kept its own
+`PlatformScheduler` contract, and only the implementation boundary changed when
+Anchor was present.
