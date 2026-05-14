@@ -3,6 +3,7 @@ package me.zamin.anchor.api.permissions;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import me.zamin.anchor.api.AnchorService;
 import org.bukkit.entity.Player;
 
@@ -85,7 +86,11 @@ public interface PermissionsService extends AnchorService {
      * permission mutation.
      * <p>
      * Providers that only support permission checks return an unsupported
-     * result instead of throwing.
+     * result instead of throwing. This method may block on provider storage or
+     * network work and should not be used for bulk mutations or hot-path
+     * gameplay logic. Prefer {@link #grantAsync(UUID, String)} for command
+     * handlers, migrations, or any operation that may touch provider-managed
+     * persistence.
      *
      * @param playerId non-null player UUID
      * @param permission non-null permission node
@@ -98,6 +103,9 @@ public interface PermissionsService extends AnchorService {
     /**
      * Revokes a global permission from a player when the backing provider
      * supports permission mutation.
+     * <p>
+     * This method may block on provider storage or network work. Prefer
+     * {@link #revokeAsync(UUID, String)} for bulk or command-driven changes.
      *
      * @param playerId non-null player UUID
      * @param permission non-null permission node
@@ -110,6 +118,10 @@ public interface PermissionsService extends AnchorService {
     /**
      * Grants a world-specific permission to a player when the backing provider
      * supports world-aware mutation.
+     * <p>
+     * This method may block on provider storage or network work. Prefer
+     * {@link #grantAsync(UUID, String, String)} when the provider may need to
+     * touch persistence or load offline user state.
      *
      * @param playerId non-null player UUID
      * @param world non-null world name
@@ -123,6 +135,9 @@ public interface PermissionsService extends AnchorService {
     /**
      * Revokes a world-specific permission from a player when the backing
      * provider supports world-aware mutation.
+     * <p>
+     * This method may block on provider storage or network work. Prefer
+     * {@link #revokeAsync(UUID, String, String)} for non-trivial workflows.
      *
      * @param playerId non-null player UUID
      * @param world non-null world name
@@ -131,5 +146,68 @@ public interface PermissionsService extends AnchorService {
      */
     default PermissionResult revoke(UUID playerId, String world, String permission) {
         return PermissionResult.unsupported(providerName(), "World-aware permission mutation is not supported by this provider.");
+    }
+
+    /**
+     * Grants a global permission asynchronously.
+     * <p>
+     * This is the preferred mutation path for command handlers, migrations, and
+     * bulk operations. Providers with native async APIs may use them directly.
+     * Providers without native async support may still complete this future by
+     * moving sync work off the main server thread. The returned future always
+     * completes with a {@link PermissionResult}; unsupported providers do not
+     * throw and instead return an unsupported result.
+     *
+     * @param playerId non-null player UUID
+     * @param permission non-null permission node
+     * @return non-null future that completes with the mutation result
+     */
+    default CompletableFuture<PermissionResult> grantAsync(UUID playerId, String permission) {
+        return CompletableFuture.completedFuture(grant(playerId, permission));
+    }
+
+    /**
+     * Revokes a global permission asynchronously.
+     * <p>
+     * This is the preferred mutation path for command handlers, migrations, and
+     * bulk operations. Provider behavior may vary depending on whether the
+     * backing system supports true async mutation or an off-thread sync bridge.
+     *
+     * @param playerId non-null player UUID
+     * @param permission non-null permission node
+     * @return non-null future that completes with the mutation result
+     */
+    default CompletableFuture<PermissionResult> revokeAsync(UUID playerId, String permission) {
+        return CompletableFuture.completedFuture(revoke(playerId, permission));
+    }
+
+    /**
+     * Grants a world-specific permission asynchronously.
+     * <p>
+     * This is the preferred mutation path for command handlers, migrations, and
+     * bulk operations that may require provider persistence work.
+     *
+     * @param playerId non-null player UUID
+     * @param world non-null world name
+     * @param permission non-null permission node
+     * @return non-null future that completes with the mutation result
+     */
+    default CompletableFuture<PermissionResult> grantAsync(UUID playerId, String world, String permission) {
+        return CompletableFuture.completedFuture(grant(playerId, world, permission));
+    }
+
+    /**
+     * Revokes a world-specific permission asynchronously.
+     * <p>
+     * This is the preferred mutation path for command handlers, migrations, and
+     * bulk operations that may require provider persistence work.
+     *
+     * @param playerId non-null player UUID
+     * @param world non-null world name
+     * @param permission non-null permission node
+     * @return non-null future that completes with the mutation result
+     */
+    default CompletableFuture<PermissionResult> revokeAsync(UUID playerId, String world, String permission) {
+        return CompletableFuture.completedFuture(revoke(playerId, world, permission));
     }
 }

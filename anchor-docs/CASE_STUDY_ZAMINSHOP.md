@@ -13,7 +13,7 @@ reduced complexity in a live plugin instead of just looking clean in examples.
 ## What stayed internal
 
 - non-Vault economy providers stayed internal because ZaminShop supports many plugin-specific currencies that Anchor does not abstract yet
-- permission mutation for the actual shop purchase flow stayed direct in ZaminShop because Anchor originally lacked safe mutation support and world-aware permission checks
+- permission mutation for the actual shop purchase flow stayed direct during the first pass because Anchor originally lacked safe mutation support and world-aware permission checks
 - menu and GUI systems stayed internal because replacing them with Anchor GUI would have been a rewrite, not a cleanup
 - placeholder handling stayed internal because ZaminShop did not have a direct PlaceholderAPI parsing seam that needed replacing
 
@@ -28,7 +28,17 @@ reduced complexity in a live plugin instead of just looking clean in examples.
 
 - Anchor needed world-aware permission checks
 - Anchor needed safe permission mutation results instead of boolean-or-throw behavior
+- Anchor needed async-safe permission mutation so command-driven changes would not hide provider blocking behind a clean synchronous method
 - consumer plugins with their own scheduler facade needed clear migration guidance
+
+## Permission mutation: sync vs async
+
+Anchor now supports both sync and async permission mutation.
+
+- sync mutation is still useful for small convenience calls where the caller understands provider cost
+- async mutation is the preferred path for commands, migrations, bulk permission grants, and any flow that may load or save provider state
+- LuckPerms now uses native async user load and save paths
+- non-native providers can still be used safely through Anchor's async scheduler bridge
 
 ## Why Anchor stayed optional
 
@@ -43,6 +53,7 @@ forcing every server to install Anchor immediately.
 - start ZaminShop without Anchor and confirm normal startup with fallback warning
 - start with Anchor only and confirm scheduler migration and startup logs
 - start with Anchor plus LuckPerms and test permission-gated shop access
+- test async permission grant and revoke flows from command-driven purchase paths
 - start with Anchor plus Vault and test Vault-backed shop transactions
 - run on both Paper and Folia
 - exercise shop actions that dispatch commands or reopen menus after delayed tasks

@@ -19,6 +19,7 @@ Before Anchor 1.0 stable:
 - breaking public API changes are allowed
 - every breaking change must be documented in `CHANGELOG.md`
 - examples and migration docs must be updated with the new contract
+- additive API growth is preferred over replacing established contracts when consumer migrations have already started
 
 ## Post-1.0 policy
 

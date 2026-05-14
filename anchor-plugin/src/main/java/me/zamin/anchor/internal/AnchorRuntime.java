@@ -79,11 +79,11 @@ public final class AnchorRuntime {
         long startupStart = System.nanoTime();
         AnchorPlatform platform = PlatformDetector.detect();
 
+        TimedResult<SchedulerService> scheduler = createScheduler(platform);
         TimedResult<EconomyService> economy = loadEconomy();
-        TimedResult<PermissionsService> permissions = loadPermissions();
+        TimedResult<PermissionsService> permissions = loadPermissions(scheduler.value());
         TimedResult<PlaceholderService> placeholders = loadPlaceholders(platform);
         TimedResult<RegionService> regions = loadRegions();
-        TimedResult<SchedulerService> scheduler = createScheduler(platform);
         ItemTagService items = new PersistentDataItemTagService(plugin);
         GuiFactory guis = new GuiFactoryImpl(plugin);
 
@@ -180,24 +180,24 @@ public final class AnchorRuntime {
         return timed("adapter.load.vaultEconomy", new VaultEconomyService(economy), start);
     }
 
-    private TimedResult<PermissionsService> loadPermissions() {
+    private TimedResult<PermissionsService> loadPermissions(SchedulerService scheduler) {
         long start = System.nanoTime();
         if (plugin.getConfig().getBoolean("hooks.luckperms", true) && isPluginEnabled("LuckPerms")) {
             LuckPerms luckPerms = Bukkit.getServicesManager().load(LuckPerms.class);
             if (luckPerms != null) {
                 hooks.register(metadata("LuckPerms", "LuckPerms", AdapterLifecycleState.ACTIVE, Set.of(AdapterCapability.PERMISSIONS), "LuckPerms", "LuckPerms bridge active.", start));
-                return timed("adapter.load.luckPerms", new LuckPermsPermissionsService(luckPerms), start);
+                return timed("adapter.load.luckPerms", new AsyncPermissionsServiceDecorator(new LuckPermsPermissionsService(luckPerms), scheduler, true), start);
             }
         }
         if (plugin.getConfig().getBoolean("hooks.vault", true) && isPluginEnabled("Vault")) {
             Permission permission = Bukkit.getServicesManager().load(Permission.class);
             if (permission != null) {
                 hooks.register(metadata("Vault Permissions", "Vault", AdapterLifecycleState.FALLBACK, Set.of(AdapterCapability.PERMISSIONS), permission.getName(), "Vault permissions bridge active but lower priority than LuckPerms.", start));
-                return timed("adapter.load.vaultPermissions", new VaultPermissionsService(permission), start);
+                return timed("adapter.load.vaultPermissions", new AsyncPermissionsServiceDecorator(new VaultPermissionsService(permission), scheduler, false), start);
             }
         }
         hooks.register(metadata("Permissions Fallback", "Bukkit", AdapterLifecycleState.FALLBACK, Set.of(AdapterCapability.PERMISSIONS), "Bukkit", "Using Bukkit permission fallback.", start));
-        return timed("adapter.load.bukkitPermissions", new BukkitPermissionsService(), start);
+        return timed("adapter.load.bukkitPermissions", new AsyncPermissionsServiceDecorator(new BukkitPermissionsService(), scheduler, false), start);
     }
 
     private TimedResult<PlaceholderService> loadPlaceholders(AnchorPlatform platform) {

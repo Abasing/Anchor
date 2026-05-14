@@ -5,6 +5,7 @@ import java.util.LinkedHashSet;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import me.zamin.anchor.api.ServiceStatus;
 import me.zamin.anchor.api.permissions.PermissionResult;
 import me.zamin.anchor.api.permissions.PermissionsService;
@@ -69,6 +70,26 @@ public final class VaultPermissionsService implements PermissionsService {
     @Override
     public PermissionResult revoke(UUID playerId, String world, String permissionNode) {
         return mutate(permission.playerRemove(world, Bukkit.getOfflinePlayer(playerId), permissionNode), true, world, permissionNode);
+    }
+
+    @Override
+    public CompletableFuture<PermissionResult> grantAsync(UUID playerId, String permissionNode) {
+        return CompletableFuture.completedFuture(grant(playerId, permissionNode));
+    }
+
+    @Override
+    public CompletableFuture<PermissionResult> revokeAsync(UUID playerId, String permissionNode) {
+        return CompletableFuture.completedFuture(revoke(playerId, permissionNode));
+    }
+
+    @Override
+    public CompletableFuture<PermissionResult> grantAsync(UUID playerId, String world, String permissionNode) {
+        return CompletableFuture.completedFuture(grant(playerId, world, permissionNode));
+    }
+
+    @Override
+    public CompletableFuture<PermissionResult> revokeAsync(UUID playerId, String world, String permissionNode) {
+        return CompletableFuture.completedFuture(revoke(playerId, world, permissionNode));
     }
 
     @Override

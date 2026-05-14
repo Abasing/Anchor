@@ -4,6 +4,7 @@ import java.util.Collections;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import me.zamin.anchor.api.ServiceStatus;
 import me.zamin.anchor.api.permissions.PermissionResult;
 import me.zamin.anchor.api.permissions.PermissionsService;
@@ -62,6 +63,26 @@ public final class BukkitPermissionsService implements PermissionsService {
     @Override
     public PermissionResult revoke(UUID playerId, String world, String permission) {
         return PermissionResult.unsupported(providerName(), "Bukkit fallback permissions do not support world-aware mutation.");
+    }
+
+    @Override
+    public CompletableFuture<PermissionResult> grantAsync(UUID playerId, String permission) {
+        return CompletableFuture.completedFuture(grant(playerId, permission));
+    }
+
+    @Override
+    public CompletableFuture<PermissionResult> revokeAsync(UUID playerId, String permission) {
+        return CompletableFuture.completedFuture(revoke(playerId, permission));
+    }
+
+    @Override
+    public CompletableFuture<PermissionResult> grantAsync(UUID playerId, String world, String permission) {
+        return CompletableFuture.completedFuture(grant(playerId, world, permission));
+    }
+
+    @Override
+    public CompletableFuture<PermissionResult> revokeAsync(UUID playerId, String world, String permission) {
+        return CompletableFuture.completedFuture(revoke(playerId, world, permission));
     }
 
     @Override

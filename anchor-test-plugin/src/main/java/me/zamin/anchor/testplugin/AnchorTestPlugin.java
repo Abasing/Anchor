@@ -2,6 +2,7 @@ package me.zamin.anchor.testplugin;
 
 import me.zamin.anchor.api.Anchor;
 import me.zamin.anchor.api.economy.EconomyService;
+import me.zamin.anchor.api.permissions.PermissionResult;
 import me.zamin.anchor.api.permissions.PermissionsService;
 import me.zamin.anchor.api.placeholders.PlaceholderService;
 import me.zamin.anchor.api.regions.RegionService;
@@ -51,6 +52,18 @@ public final class AnchorTestPlugin extends JavaPlugin {
 
         boolean hasAdmin = permissions.has(player, "anchor.test.admin");
         player.sendMessage("Permission check anchor.test.admin = " + hasAdmin);
+        permissions.grantAsync(player.getUniqueId(), "anchor.test.async")
+            .thenCompose(grant -> {
+                notifyPermissionResult(player, "Async grant", grant);
+                if (!grant.success()) {
+                    return java.util.concurrent.CompletableFuture.completedFuture(grant);
+                }
+                return permissions.revokeAsync(player.getUniqueId(), "anchor.test.async")
+                    .thenApply(revoke -> {
+                        notifyPermissionResult(player, "Async revoke", revoke);
+                        return revoke;
+                    });
+            });
 
         String parsed = placeholders.parse(player, "Hello {player}, online: {online}, server: {server_version}");
         player.sendMessage(parsed);
@@ -74,5 +87,10 @@ public final class AnchorTestPlugin extends JavaPlugin {
 
     private void logService(String name, boolean available, String provider) {
         getLogger().info(name + ": " + (available ? "available" : "fallback/unavailable") + " via " + provider);
+    }
+
+    private void notifyPermissionResult(Player player, String label, PermissionResult result) {
+        Anchor.api().scheduler().entity(player)
+            .run(() -> player.sendMessage(label + ": " + result.providerName() + " -> " + result.reason()));
     }
 }

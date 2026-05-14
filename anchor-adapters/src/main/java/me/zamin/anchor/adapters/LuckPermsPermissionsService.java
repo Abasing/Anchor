@@ -5,6 +5,7 @@ import java.util.LinkedHashSet;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import me.zamin.anchor.api.ServiceStatus;
 import me.zamin.anchor.api.permissions.PermissionResult;
 import me.zamin.anchor.api.permissions.PermissionsService;
@@ -88,22 +89,42 @@ public final class LuckPermsPermissionsService implements PermissionsService {
 
     @Override
     public PermissionResult grant(UUID playerId, String permission) {
-        return mutate(playerId, buildNode(permission, null), false, null);
+        return grantAsync(playerId, permission).join();
     }
 
     @Override
     public PermissionResult revoke(UUID playerId, String permission) {
-        return mutate(playerId, buildNode(permission, null), true, null);
+        return revokeAsync(playerId, permission).join();
     }
 
     @Override
     public PermissionResult grant(UUID playerId, String world, String permission) {
-        return mutate(playerId, buildNode(permission, world), false, world);
+        return grantAsync(playerId, world, permission).join();
     }
 
     @Override
     public PermissionResult revoke(UUID playerId, String world, String permission) {
-        return mutate(playerId, buildNode(permission, world), true, world);
+        return revokeAsync(playerId, world, permission).join();
+    }
+
+    @Override
+    public CompletableFuture<PermissionResult> grantAsync(UUID playerId, String permission) {
+        return mutateAsync(playerId, buildNode(permission, null), false, null);
+    }
+
+    @Override
+    public CompletableFuture<PermissionResult> revokeAsync(UUID playerId, String permission) {
+        return mutateAsync(playerId, buildNode(permission, null), true, null);
+    }
+
+    @Override
+    public CompletableFuture<PermissionResult> grantAsync(UUID playerId, String world, String permission) {
+        return mutateAsync(playerId, buildNode(permission, world), false, world);
+    }
+
+    @Override
+    public CompletableFuture<PermissionResult> revokeAsync(UUID playerId, String world, String permission) {
+        return mutateAsync(playerId, buildNode(permission, world), true, world);
     }
 
     @Override
@@ -133,26 +154,34 @@ public final class LuckPermsPermissionsService implements PermissionsService {
         return Node.builder(permission).withContext("world", world).build();
     }
 
-    private PermissionResult mutate(UUID playerId, Node node, boolean revoke, String world) {
+    private CompletableFuture<PermissionResult> mutateAsync(UUID playerId, Node node, boolean revoke, String world) {
         boolean loadedBefore = luckPerms.getUserManager().isLoaded(playerId);
-        try {
-            User user = luckPerms.getUserManager().loadUser(playerId).join();
-            DataMutateResult result = revoke ? user.data().remove(node) : user.data().add(node);
-            if (result.wasSuccessful()) {
-                luckPerms.getUserManager().saveUser(user).join();
-                return PermissionResult.success(providerName(), mutationMessage(revoke, node.getKey(), world));
-            }
-            return PermissionResult.failure(providerName(), mutateFailureReason(revoke, result, node.getKey(), world));
-        } catch (RuntimeException exception) {
-            return PermissionResult.failure(providerName(), "LuckPerms mutation failed: " + exception.getMessage());
-        } finally {
-            if (!loadedBefore) {
-                User user = luckPerms.getUserManager().getUser(playerId);
-                if (user != null) {
-                    luckPerms.getUserManager().cleanupUser(user);
+        return luckPerms.getUserManager().loadUser(playerId)
+            .thenCompose(user -> {
+                DataMutateResult result = revoke ? user.data().remove(node) : user.data().add(node);
+                if (result.wasSuccessful()) {
+                    return luckPerms.getUserManager().saveUser(user)
+                        .thenApply(ignored -> PermissionResult.success(providerName(), mutationMessage(revoke, node.getKey(), world)));
                 }
-            }
+                return CompletableFuture.completedFuture(PermissionResult.failure(providerName(), mutateFailureReason(revoke, result, node.getKey(), world)));
+            })
+            .exceptionally(exception -> PermissionResult.failure(providerName(), "LuckPerms mutation failed: " + rootMessage(exception)))
+            .whenComplete((ignored, throwable) -> {
+                if (!loadedBefore) {
+                    User user = luckPerms.getUserManager().getUser(playerId);
+                    if (user != null) {
+                        luckPerms.getUserManager().cleanupUser(user);
+                    }
+                }
+            });
+    }
+
+    private String rootMessage(Throwable throwable) {
+        Throwable current = throwable;
+        while (current.getCause() != null) {
+            current = current.getCause();
         }
+        return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
     }
 
     private String mutationMessage(boolean revoke, String permission, String world) {
