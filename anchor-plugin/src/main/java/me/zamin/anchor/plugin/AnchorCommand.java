@@ -1,11 +1,13 @@
 package me.zamin.anchor.plugin;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import me.zamin.anchor.api.Anchor;
+import me.zamin.anchor.api.diagnostics.DiagnosticSeverity;
+import me.zamin.anchor.api.diagnostics.DoctorMessage;
 import me.zamin.anchor.api.diagnostics.DoctorReport;
 import me.zamin.anchor.api.diagnostics.PluginCompatibilityReport;
+import me.zamin.anchor.api.hooks.HookState;
 import me.zamin.anchor.api.hooks.HookStatus;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
@@ -24,27 +26,21 @@ public final class AnchorCommand implements CommandExecutor, TabCompleter {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         String subcommand = args.length == 0 ? "status" : args[0].toLowerCase(Locale.ROOT);
-        switch (subcommand) {
-            case "status":
-                return handleStatus(sender);
-            case "hooks":
-                return handleHooks(sender);
-            case "doctor":
-                return handleDoctor(sender);
-            case "reload":
-                return handleReload(sender);
-            default:
+        return switch (subcommand) {
+            case "status" -> handleStatus(sender);
+            case "hooks" -> handleHooks(sender);
+            case "doctor" -> handleDoctor(sender);
+            case "reload" -> handleReload(sender);
+            default -> {
                 sender.sendMessage(ChatColor.RED + "Usage: /anchor <status|hooks|doctor|reload>");
-                return true;
-        }
+                yield true;
+            }
+        };
     }
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
-        if (args.length == 1) {
-            return List.of("status", "hooks", "doctor", "reload");
-        }
-        return List.of();
+        return args.length == 1 ? List.of("status", "hooks", "doctor", "reload") : List.of();
     }
 
     private boolean handleStatus(CommandSender sender) {
@@ -57,6 +53,8 @@ public final class AnchorCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(ChatColor.GRAY + " - Permissions: " + Anchor.api().permissions().providerName() + " [" + Anchor.api().permissions().status() + "]");
         sender.sendMessage(ChatColor.GRAY + " - Placeholders: " + Anchor.api().placeholders().providerName() + " [" + Anchor.api().placeholders().status() + "]");
         sender.sendMessage(ChatColor.GRAY + " - Regions: " + Anchor.api().regions().providerName() + " [" + Anchor.api().regions().status() + "]");
+        sender.sendMessage(ChatColor.GRAY + " - Items: " + Anchor.api().items().providerName() + " [" + Anchor.api().items().status() + "]");
+        sender.sendMessage(ChatColor.GRAY + " - GUI: " + Anchor.api().guis().providerName() + " [" + Anchor.api().guis().status() + "]");
         sender.sendMessage(ChatColor.GRAY + " - Scheduler: " + Anchor.api().scheduler().providerName() + " [" + Anchor.api().scheduler().platform() + "]");
         sender.sendMessage(ChatColor.GRAY + " - Scheduler warnings: " + String.join("; ", Anchor.api().scheduler().diagnostics().warnings()));
         return true;
@@ -82,18 +80,16 @@ public final class AnchorCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage(ChatColor.YELLOW + "Scheduler: " + report.scheduler().platform() + " via " + report.scheduler().implementationName());
         sender.sendMessage(ChatColor.YELLOW + "Startup: total=" + report.startup().totalMillis() + "ms, scheduler=" + report.startup().schedulerMillis() + "ms, hooks=" + report.startup().hooksMillis() + "ms");
         for (HookStatus hook : report.hooks()) {
-            sender.sendMessage(colorFor(hook.state()) + symbolFor(hook.state()) + " " + hook.hookName() + ChatColor.GRAY + " - " + hook.message());
+            sender.sendMessage(colorFor(hook.state()) + symbolFor(hook.state()) + " " + hook.hookName() + ChatColor.GRAY + " - " + hook.message() + " (" + hook.loadMillis() + "ms)");
         }
         for (PluginCompatibilityReport pluginReport : report.pluginReports()) {
             if (!pluginReport.issues().isEmpty()) {
                 sender.sendMessage(ChatColor.YELLOW + "Plugin " + pluginReport.pluginName() + " " + pluginReport.pluginVersion());
-                pluginReport.issues().forEach(issue -> sender.sendMessage(ChatColor.GRAY + " - [" + issue.severity() + "] " + issue.message()));
+                pluginReport.issues().forEach(issue -> sendDoctorMessage(sender, issue));
             }
         }
-        for (var message : report.messages()) {
-            sender.sendMessage((message.severity() == me.zamin.anchor.api.diagnostics.DiagnosticSeverity.ERROR ? ChatColor.RED
-                : message.severity() == me.zamin.anchor.api.diagnostics.DiagnosticSeverity.WARNING ? ChatColor.YELLOW
-                : ChatColor.GRAY) + "[" + message.code() + "] " + message.message());
+        for (DoctorMessage message : report.messages()) {
+            sendDoctorMessage(sender, message);
         }
         return true;
     }
@@ -112,19 +108,28 @@ public final class AnchorCommand implements CommandExecutor, TabCompleter {
         return true;
     }
 
-    private String symbolFor(me.zamin.anchor.api.hooks.HookState state) {
+    private String symbolFor(HookState state) {
         return switch (state) {
-            case ACTIVE -> "✔";
-            case FALLBACK, SKELETON -> "⚠";
-            case MISSING, DISABLED, FAILED -> "✖";
+            case ACTIVE -> "[OK]";
+            case FALLBACK, SKELETON -> "[WARN]";
+            case MISSING, DISABLED, FAILED -> "[MISS]";
         };
     }
 
-    private ChatColor colorFor(me.zamin.anchor.api.hooks.HookState state) {
+    private ChatColor colorFor(HookState state) {
         return switch (state) {
             case ACTIVE -> ChatColor.GREEN;
             case FALLBACK, SKELETON -> ChatColor.YELLOW;
             case MISSING, DISABLED, FAILED -> ChatColor.RED;
         };
+    }
+
+    private void sendDoctorMessage(CommandSender sender, DoctorMessage message) {
+        ChatColor color = message.severity() == DiagnosticSeverity.ERROR
+            ? ChatColor.RED
+            : message.severity() == DiagnosticSeverity.WARNING ? ChatColor.YELLOW : ChatColor.GRAY;
+        sender.sendMessage(color + message.severity().name() + ": " + message.problem());
+        sender.sendMessage(ChatColor.DARK_GRAY + "Cause: " + ChatColor.GRAY + message.cause());
+        sender.sendMessage(ChatColor.DARK_GRAY + "Fix: " + ChatColor.GRAY + message.recommendedFix());
     }
 }

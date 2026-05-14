@@ -3,3 +3,7 @@ main: me.zamin.anchor.examples.foliasafe.FoliaSafeTasksPlugin
 version: ${project.version}
 api-version: "1.20"
 depend: [Anchor]
+commands:
+  foliasafetasks:
+    description: Demonstrate Anchor scheduler contexts safely across Paper and Folia
+    usage: /foliasafetasks

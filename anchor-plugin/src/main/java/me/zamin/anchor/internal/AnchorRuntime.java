@@ -10,7 +10,6 @@ import java.nio.file.Path;
 import java.security.CodeSource;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -59,7 +58,6 @@ import net.milkbowl.vault.economy.Economy;
 import net.milkbowl.vault.permission.Permission;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.Plugin;
-import org.bukkit.plugin.PluginDescriptionFile;
 import org.bukkit.plugin.ServicesManager;
 
 public final class AnchorRuntime {
@@ -390,21 +388,51 @@ public final class AnchorRuntime {
         public DoctorReport doctor() {
             List<DoctorMessage> messages = new ArrayList<>();
             if (schedulerDiagnostics.foliaDetected()) {
-                messages.add(new DoctorMessage(DiagnosticSeverity.WARNING, "FOLIA_DETECTED", "Folia detected. Use Anchor scheduler contexts instead of direct BukkitScheduler usage."));
+                messages.add(new DoctorMessage(
+                    DiagnosticSeverity.WARNING,
+                    "FOLIA_DETECTED",
+                    "Folia runtime detected.",
+                    "The server is running Folia, which uses regionized threading instead of a single universal main thread.",
+                    "Use Anchor scheduler contexts such as global(), region(location), entity(entity), and async() instead of direct BukkitScheduler assumptions."
+                ));
             } else {
-                messages.add(new DoctorMessage(DiagnosticSeverity.INFO, "PAPER_OR_BUKKIT", "Folia not detected. Region and entity scheduling fall back to global scheduling."));
+                messages.add(new DoctorMessage(
+                    DiagnosticSeverity.INFO,
+                    "PAPER_OR_BUKKIT",
+                    "Folia runtime not detected.",
+                    "The server is using Paper/Spigot style scheduling.",
+                    "Region and entity scheduler contexts will fall back to Anchor's global scheduler adapter."
+                ));
             }
             for (HookStatus hook : hookService.all()) {
                 if (hook.state() == HookState.MISSING || hook.state() == HookState.DISABLED || hook.state() == HookState.FAILED) {
-                    messages.add(new DoctorMessage(DiagnosticSeverity.WARNING, "HOOK_" + hook.hookName().toUpperCase().replace(' ', '_'), hook.message()));
+                    messages.add(new DoctorMessage(
+                        DiagnosticSeverity.WARNING,
+                        "HOOK_" + hook.hookName().toUpperCase().replace(' ', '_'),
+                        hook.hookName() + " is not fully available.",
+                        hook.message(),
+                        recommendedFixForHook(hook)
+                    ));
                 }
                 if (hook.hookName().equalsIgnoreCase("WorldGuard") && hook.message().contains("v7+")) {
-                    messages.add(new DoctorMessage(DiagnosticSeverity.WARNING, "WORLDGUARD_VERSION", "Update WorldGuard to v7+ for stable region integration."));
+                    messages.add(new DoctorMessage(
+                        DiagnosticSeverity.WARNING,
+                        "WORLDGUARD_VERSION",
+                        "WorldGuard version may be unsupported.",
+                        "Anchor expects WorldGuard v7+ APIs for stable region integration.",
+                        "Update WorldGuard to a v7+ build before relying on production region checks."
+                    ));
                 }
             }
             for (AnchorService service : services) {
                 if (!service.isAvailable()) {
-                    messages.add(new DoctorMessage(DiagnosticSeverity.WARNING, "SERVICE_UNAVAILABLE", service.providerName() + " is unavailable for " + service.getClass().getInterfaces()[0].getSimpleName()));
+                    messages.add(new DoctorMessage(
+                        DiagnosticSeverity.WARNING,
+                        "SERVICE_UNAVAILABLE",
+                        service.getClass().getInterfaces()[0].getSimpleName() + " is currently unavailable.",
+                        "Anchor selected the " + service.providerName() + " fallback or no-op implementation.",
+                        "Install the matching dependency plugin or handle the unavailable state in your plugin before using the feature."
+                    ));
                 }
             }
             return new DoctorReport(
@@ -452,17 +480,51 @@ public final class AnchorRuntime {
                         directSchedulerUsage = containsSchedulerMarkers(jarPath);
                     }
                 } catch (IOException ex) {
-                    issues.add(new DoctorMessage(DiagnosticSeverity.WARNING, "SCAN_FAILED", "Could not inspect plugin jar for " + candidate.getName() + ": " + ex.getMessage()));
+                    issues.add(new DoctorMessage(
+                        DiagnosticSeverity.WARNING,
+                        "SCAN_FAILED",
+                        "Plugin compatibility scan failed for " + candidate.getName() + ".",
+                        ex.getMessage(),
+                        "Rebuild the plugin jar or inspect the plugin manually if compatibility information is important."
+                    ));
                 }
                 if (foliaDetected && !foliaDeclared) {
-                    issues.add(new DoctorMessage(DiagnosticSeverity.WARNING, "MISSING_FOLIA_DECLARATION", candidate.getName() + " does not declare folia-supported: true."));
+                    issues.add(new DoctorMessage(
+                        DiagnosticSeverity.WARNING,
+                        "MISSING_FOLIA_DECLARATION",
+                        candidate.getName() + " is not marked folia-supported.",
+                        "plugin.yml does not declare folia-supported: true.",
+                        "Contact the plugin author or test carefully before production use on Folia."
+                    ));
                 }
                 if (foliaDetected && directSchedulerUsage) {
-                    issues.add(new DoctorMessage(DiagnosticSeverity.WARNING, "DIRECT_SCHEDULER_USAGE", candidate.getName() + " may call BukkitScheduler directly."));
+                    issues.add(new DoctorMessage(
+                        DiagnosticSeverity.WARNING,
+                        "DIRECT_SCHEDULER_USAGE",
+                        candidate.getName() + " may call BukkitScheduler directly.",
+                        "Anchor found common direct scheduler markers in the plugin jar.",
+                        "Review the plugin for Folia safety or prefer Anchor scheduler abstractions in your own code."
+                    ));
                 }
                 reports.add(new PluginCompatibilityReport(candidate.getName(), candidate.getPluginMeta().getVersion(), foliaDeclared, directSchedulerUsage, List.copyOf(issues)));
             }
             return reports;
+        }
+
+        private String recommendedFixForHook(HookStatus hook) {
+            if (hook.hookName().contains("Vault")) {
+                return "Install Vault and a compatible economy or permissions provider, or keep handling unavailable economy and permission features gracefully.";
+            }
+            if (hook.hookName().equalsIgnoreCase("PlaceholderAPI")) {
+                return "Install PlaceholderAPI for third-party placeholder support, or continue using Anchor's internal placeholders only.";
+            }
+            if (hook.hookName().equalsIgnoreCase("WorldGuard")) {
+                return "Install or update WorldGuard, or confirm the configured fallback behavior is acceptable for this server.";
+            }
+            if (hook.hookName().equalsIgnoreCase("Citizens") || hook.hookName().equalsIgnoreCase("ProtocolLib")) {
+                return "No runtime abstraction exists yet. Treat this hook as reserved architecture, not a ready integration.";
+            }
+            return "Install the dependency plugin or keep using the current fallback behavior.";
         }
 
         private Path pluginJar(Plugin candidate) {

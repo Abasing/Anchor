@@ -76,6 +76,13 @@ $env:Path="$env:JAVA_HOME\bin;$env:Path"
 mvn clean package
 ```
 
+## Should I depend on `anchor-api` or `anchor-plugin`?
+
+- Plugin developers should compile against `anchor-api`.
+- Server owners should install `anchor-plugin`.
+- `anchor-plugin` shades the API and adapter runtime into the installed jar.
+- Other plugins should not shade `anchor-plugin`; they should depend on Anchor at runtime and call `Anchor.api()`.
+
 ## Modules
 
 - `anchor-api`: stable public API for plugin developers
